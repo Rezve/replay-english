@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { CheckCircle, XCircle, Loader2, RefreshCw, Download } from 'lucide-react';
+import { CheckCircle, XCircle, Loader2, RefreshCw, Download, Cpu, Zap } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
-import type { PrerequisiteStatus, DownloadProgressEvent } from '../../shared/types';
+import type { PrerequisiteStatus, DownloadProgressEvent, GpuInfo, WhisperBinaryVariant } from '../../shared/types';
 
 type CheckStatus = 'checking' | 'ok' | 'error';
 
@@ -25,6 +25,8 @@ export function SetupPage() {
   const [checking, setChecking] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState<DownloadProgressEvent | null>(null);
+  const [gpuInfo, setGpuInfo] = useState<GpuInfo | null>(null);
+  const [downloadingBinary, setDownloadingBinary] = useState(false);
 
   const runChecks = async () => {
     setChecking(true);
@@ -73,6 +75,7 @@ export function SetupPage() {
 
   useEffect(() => {
     runChecks();
+    api.checkGpu().then(setGpuInfo).catch(() => setGpuInfo({ available: false }));
 
     // Listen for download progress
     const unsubscribe = api.onDownloadProgress((progress) => {
@@ -81,6 +84,21 @@ export function SetupPage() {
 
     return unsubscribe;
   }, []);
+
+  const downloadBinary = async (variant: WhisperBinaryVariant) => {
+    setDownloadingBinary(true);
+    setDownloadProgress(null);
+    try {
+      await api.downloadWhisperBinary(variant);
+      await runChecks();
+    } catch (err) {
+      console.error('Failed to download whisper binary:', err);
+      alert('Failed to download whisper binary. Please check your internet connection and try again.');
+    } finally {
+      setDownloadingBinary(false);
+      setDownloadProgress(null);
+    }
+  };
 
   const downloadWhisperModel = async () => {
     setDownloading(true);
@@ -111,7 +129,10 @@ export function SetupPage() {
         <div className="space-y-3 mb-8">
           {items.map((item) => {
             const isWhisperModel = item.name === 'Whisper Model';
-            const canDownload = isWhisperModel && item.status === 'error';
+            const isWhisperBinary = item.name === 'Whisper Binary';
+            const canDownloadModel = isWhisperModel && item.status === 'error';
+            const canDownloadBinary = isWhisperBinary && item.status === 'error';
+            const isDownloading = isWhisperModel ? downloading : downloadingBinary;
 
             return (
               <div
@@ -126,10 +147,11 @@ export function SetupPage() {
                 <div className="flex-1">
                   <p className="text-white font-medium text-sm">{item.name}</p>
                   <p className="text-slate-500 text-xs">{item.description}</p>
-                  {item.hint && !downloading && (
+                  {item.hint && !isDownloading && (
                     <p className="text-orange-400 text-xs mt-1">{item.hint}</p>
                   )}
-                  {canDownload && downloading && downloadProgress && (
+                  {/* Progress bar for either download */}
+                  {(canDownloadModel || canDownloadBinary) && isDownloading && downloadProgress && (
                     <div className="mt-2">
                       <p className="text-blue-400 text-xs mb-1">
                         Downloading... {downloadProgress.percentage}%
@@ -145,10 +167,11 @@ export function SetupPage() {
                       </div>
                     </div>
                   )}
-                  {canDownload && downloading && !downloadProgress && (
+                  {(canDownloadModel || canDownloadBinary) && isDownloading && !downloadProgress && (
                     <p className="text-blue-400 text-xs mt-2">Starting download...</p>
                   )}
-                  {canDownload && !downloading && (
+                  {/* Whisper model download button */}
+                  {canDownloadModel && !downloading && (
                     <button
                       onClick={downloadWhisperModel}
                       className="mt-2 flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-colors"
@@ -156,6 +179,42 @@ export function SetupPage() {
                       <Download size={14} />
                       Download Model (~148MB)
                     </button>
+                  )}
+                  {/* Whisper binary download buttons */}
+                  {canDownloadBinary && !downloadingBinary && gpuInfo && (
+                    <div className="mt-2 space-y-2">
+                      {gpuInfo.available && (
+                        <p className="text-slate-400 text-xs">
+                          <Zap size={12} className="inline text-yellow-400 mr-1" />
+                          Detected: {gpuInfo.name}
+                        </p>
+                      )}
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => downloadBinary('cuda')}
+                          disabled={!gpuInfo.available}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 text-white text-xs rounded transition-colors ${
+                            gpuInfo.available
+                              ? 'bg-blue-600 hover:bg-blue-700'
+                              : 'bg-slate-700 text-slate-500 cursor-not-allowed'
+                          }`}
+                        >
+                          <Zap size={14} />
+                          CUDA 12 (~438MB){gpuInfo.available ? ' (Recommended)' : ''}
+                        </button>
+                        <button
+                          onClick={() => downloadBinary('cpu')}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 text-white text-xs rounded transition-colors ${
+                            !gpuInfo.available
+                              ? 'bg-blue-600 hover:bg-blue-700'
+                              : 'bg-slate-700 hover:bg-slate-600'
+                          }`}
+                        >
+                          <Cpu size={14} />
+                          CPU Only (~3MB){!gpuInfo.available ? ' (Recommended)' : ''}
+                        </button>
+                      </div>
+                    </div>
                   )}
                 </div>
               </div>
@@ -166,7 +225,7 @@ export function SetupPage() {
           {hasErrors && (
             <button
               onClick={runChecks}
-              disabled={checking || downloading}
+              disabled={checking || downloading || downloadingBinary}
               className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <RefreshCw size={16} className={checking ? 'animate-spin' : ''} />

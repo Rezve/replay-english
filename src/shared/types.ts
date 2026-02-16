@@ -116,6 +116,13 @@ export interface DownloadProgressEvent {
   percentage: number;
 }
 
+export interface GpuInfo {
+  available: boolean;
+  name?: string;
+}
+
+export type WhisperBinaryVariant = 'cpu' | 'cuda';
+
 // Electron API exposed via preload
 export interface ElectronAPI {
   // Audio
@@ -153,6 +160,8 @@ export interface ElectronAPI {
   // Prerequisites
   checkPrerequisites(): Promise<PrerequisiteStatus>;
   downloadWhisperModel(modelName?: string): Promise<void>;
+  downloadWhisperBinary(variant: WhisperBinaryVariant): Promise<void>;
+  checkGpu(): Promise<GpuInfo>;
 
   // Events
   onProgress(callback: (event: ProgressEvent) => void): () => void;

@@ -5,6 +5,8 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import https from 'node:https';
 import http from 'node:http';
+import AdmZip from 'adm-zip';
+import type { GpuInfo, WhisperBinaryVariant } from '../../shared/types';
 
 const execFileAsync = promisify(execFile);
 
@@ -189,21 +191,34 @@ export async function transcribeWav(
   }));
 }
 
-// Download whisper model from Hugging Face
-export async function downloadModel(
-  modelName: string = 'ggml-base.en.bin',
-  onProgress?: (downloaded: number, total: number) => void
+const WHISPER_VERSION = 'v1.8.3';
+const WHISPER_DOWNLOAD_URLS: Record<WhisperBinaryVariant, { fileName: string; label: string }> = {
+  cpu: { fileName: 'whisper-bin-x64.zip', label: 'CPU' },
+  cuda: { fileName: 'whisper-cublas-12.4.0-bin-x64.zip', label: 'CUDA 12' },
+};
+
+export async function checkGpu(): Promise<GpuInfo> {
+  try {
+    const { stdout } = await execFileAsync('nvidia-smi', [
+      '--query-gpu=name',
+      '--format=csv,noheader',
+    ], { timeout: 5000 });
+    const name = stdout.trim().split('\n')[0]?.trim();
+    return { available: true, name: name || 'NVIDIA GPU' };
+  } catch {
+    return { available: false };
+  }
+}
+
+function downloadFile(
+  url: string,
+  destPath: string,
+  onProgress?: (downloaded: number, total: number) => void,
 ): Promise<void> {
-  const modelPath = getModelPath(modelName);
-  if (fs.existsSync(modelPath)) return;
-
-  const url = `https://huggingface.co/ggerganov/whisper.cpp/resolve/main/${modelName}`;
-
   return new Promise((resolve, reject) => {
     const doRequest = (requestUrl: string) => {
       const protocol = requestUrl.startsWith('https') ? https : http;
       protocol.get(requestUrl, { headers: { 'User-Agent': 'MemPill-Language/1.0' } }, (response) => {
-        // Handle redirects
         if (response.statusCode === 301 || response.statusCode === 302) {
           const redirectUrl = response.headers.location;
           if (redirectUrl) {
@@ -213,15 +228,14 @@ export async function downloadModel(
         }
 
         if (response.statusCode !== 200) {
-          reject(new Error(`Failed to download model: HTTP ${response.statusCode}`));
+          reject(new Error(`Download failed: HTTP ${response.statusCode}`));
           return;
         }
 
         const totalBytes = parseInt(response.headers['content-length'] || '0', 10);
         let downloadedBytes = 0;
 
-        const tempPath = modelPath + '.tmp';
-        const fileStream = fs.createWriteStream(tempPath);
+        const fileStream = fs.createWriteStream(destPath);
 
         response.on('data', (chunk: Buffer) => {
           downloadedBytes += chunk.length;
@@ -232,12 +246,11 @@ export async function downloadModel(
 
         fileStream.on('finish', () => {
           fileStream.close();
-          fs.renameSync(tempPath, modelPath);
           resolve();
         });
 
         fileStream.on('error', (err) => {
-          fs.unlinkSync(tempPath);
+          try { fs.unlinkSync(destPath); } catch { /* ignore */ }
           reject(err);
         });
       }).on('error', reject);
@@ -245,4 +258,53 @@ export async function downloadModel(
 
     doRequest(url);
   });
+}
+
+export async function downloadWhisperBinary(
+  variant: WhisperBinaryVariant,
+  onProgress?: (downloaded: number, total: number) => void,
+): Promise<void> {
+  const { fileName } = WHISPER_DOWNLOAD_URLS[variant];
+  const url = `https://github.com/ggml-org/whisper.cpp/releases/download/${WHISPER_VERSION}/${fileName}`;
+  const whisperDir = getWhisperDir();
+  fs.mkdirSync(whisperDir, { recursive: true });
+
+  const tempZipPath = path.join(app.getPath('temp'), fileName);
+
+  try {
+    console.log(`Downloading whisper binary (${variant}): ${url}`);
+    await downloadFile(url, tempZipPath, onProgress);
+
+    console.log('Extracting zip to:', whisperDir);
+    const zip = new AdmZip(tempZipPath);
+    for (const entry of zip.getEntries()) {
+      if (entry.isDirectory) continue;
+      const fileName = path.basename(entry.entryName);
+      const destFile = path.join(whisperDir, fileName);
+      fs.writeFileSync(destFile, entry.getData());
+    }
+    console.log('Whisper binary extracted successfully');
+  } finally {
+    try { fs.unlinkSync(tempZipPath); } catch { /* ignore */ }
+  }
+}
+
+// Download whisper model from Hugging Face
+export async function downloadModel(
+  modelName: string = 'ggml-base.en.bin',
+  onProgress?: (downloaded: number, total: number) => void
+): Promise<void> {
+  const modelPath = getModelPath(modelName);
+  if (fs.existsSync(modelPath)) return;
+
+  const url = `https://huggingface.co/ggerganov/whisper.cpp/resolve/main/${modelName}`;
+  const tempPath = modelPath + '.tmp';
+
+  try {
+    await downloadFile(url, tempPath, onProgress);
+    fs.renameSync(tempPath, modelPath);
+  } catch (err) {
+    try { fs.unlinkSync(tempPath); } catch { /* ignore */ }
+    throw err;
+  }
 }

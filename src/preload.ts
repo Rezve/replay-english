@@ -8,6 +8,7 @@ import type {
   TranscriptSegment,
   ProgressEvent,
   DownloadProgressEvent,
+  WhisperBinaryVariant,
 } from './shared/types';
 
 const electronAPI: ElectronAPI = {
@@ -64,6 +65,10 @@ const electronAPI: ElectronAPI = {
     ipcRenderer.invoke(IPC_CHANNELS.CHECK_PREREQUISITES),
   downloadWhisperModel: (modelName?: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.DOWNLOAD_WHISPER_MODEL, modelName),
+  downloadWhisperBinary: (variant: WhisperBinaryVariant) =>
+    ipcRenderer.invoke(IPC_CHANNELS.DOWNLOAD_WHISPER_BINARY, variant),
+  checkGpu: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.CHECK_GPU),
 
   // Events
   onProgress: (callback: (event: ProgressEvent) => void) => {
