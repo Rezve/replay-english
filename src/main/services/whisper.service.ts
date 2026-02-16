@@ -125,16 +125,27 @@ export async function transcribeWav(
   }
 
   // Wait a moment for file to be fully written
-  await new Promise(resolve => setTimeout(resolve, 100));
+  // Increased wait time to ensure file is fully flushed to disk
+  await new Promise(resolve => setTimeout(resolve, 500));
 
   // Read and parse JSON output file
   let output: WhisperOutput;
 
-  // Check if file exists
-  if (!fs.existsSync(jsonPath)) {
+  // Check if file exists with retry logic
+  let fileExists = false;
+  for (let retry = 0; retry < 5; retry++) {
+    if (fs.existsSync(jsonPath)) {
+      fileExists = true;
+      break;
+    }
+    console.log(`JSON file not found yet, retry ${retry + 1}/5...`);
+    await new Promise(resolve => setTimeout(resolve, 200));
+  }
+
+  if (!fileExists) {
     const dir = path.dirname(wavPath);
     const filesInDir = fs.readdirSync(dir);
-    console.error('JSON file not found!');
+    console.error('JSON file not found after retries!');
     console.error('Expected path:', jsonPath);
     console.error('Files in directory:', filesInDir);
     throw new Error(`JSON output file not found at: ${jsonPath}`);

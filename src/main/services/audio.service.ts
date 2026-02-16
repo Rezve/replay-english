@@ -26,10 +26,12 @@ function getTempDir(meetingId: string): string {
 export async function saveAudioChunk(
   meetingId: string,
   chunkIndex: number,
-  buffer: ArrayBuffer
+  buffer: ArrayBuffer,
+  prefix?: string
 ): Promise<string> {
   const dir = getTempDir(meetingId);
-  const filePath = path.join(dir, `chunk_${chunkIndex}.webm`);
+  const fileName = prefix ? `${prefix}_chunk_${chunkIndex}.webm` : `chunk_${chunkIndex}.webm`;
+  const filePath = path.join(dir, fileName);
   fs.writeFileSync(filePath, Buffer.from(buffer));
   return filePath;
 }
@@ -57,12 +59,18 @@ export function cleanupMeetingTemp(meetingId: string): void {
   }
 }
 
-export function getChunkPaths(meetingId: string): string[] {
+export function getChunkPaths(meetingId: string, prefix?: string): string[] {
   const dir = path.join(app.getPath('userData'), 'temp', meetingId);
   if (!fs.existsSync(dir)) return [];
 
   return fs.readdirSync(dir)
-    .filter(f => f.endsWith('.webm'))
-    .sort()
+    .filter(f => {
+      if (!f.endsWith('.webm')) return false;
+      // If prefix specified, only return files with that prefix
+      if (prefix) return f.startsWith(`${prefix}_`);
+      // If no prefix, return files WITHOUT 'mic_' prefix (backward compatibility)
+      return !f.startsWith('mic_');
+    })
+    .sort((a, b) => a.localeCompare(b))
     .map(f => path.join(dir, f));
 }

@@ -51,11 +51,13 @@ export function ReportPage() {
   const [selectedMistake, setSelectedMistake] = useState<Mistake | null>(null);
   const [mistakeIndex, setMistakeIndex] = useState(0);
   const [progress, setProgress] = useState<ProgressEvent | null>(null);
+  const processingStartedRef = React.useRef(false);
 
   useEffect(() => {
     if (!id) return;
 
-    let processingStarted = false;
+    // Reset the processing flag when the effect runs
+    processingStartedRef.current = false;
 
     const loadMeeting = async () => {
       const data = await api.getMeeting(id);
@@ -63,8 +65,8 @@ export function ReportPage() {
       setLoading(false);
 
       // Auto-start processing if meeting is in transcribing status
-      if (data && data.status === 'transcribing' && !processingStarted) {
-        processingStarted = true;
+      if (data && data.status === 'transcribing' && !processingStartedRef.current) {
+        processingStartedRef.current = true;
         startProcessing(data.id);
       }
     };

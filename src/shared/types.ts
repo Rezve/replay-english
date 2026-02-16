@@ -119,7 +119,7 @@ export interface DownloadProgressEvent {
 // Electron API exposed via preload
 export interface ElectronAPI {
   // Audio
-  saveAudioChunk(meetingId: string, chunkIndex: number, buffer: ArrayBuffer): Promise<string>;
+  saveAudioChunk(meetingId: string, chunkIndex: number, buffer: ArrayBuffer, prefix?: string): Promise<string>;
   convertToWav(inputPath: string): Promise<string>;
 
   // Transcription

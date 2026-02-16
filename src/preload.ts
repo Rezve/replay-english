@@ -12,8 +12,8 @@ import type {
 
 const electronAPI: ElectronAPI = {
   // Audio
-  saveAudioChunk: (meetingId: string, chunkIndex: number, buffer: ArrayBuffer) =>
-    ipcRenderer.invoke(IPC_CHANNELS.SAVE_AUDIO_CHUNK, meetingId, chunkIndex, buffer),
+  saveAudioChunk: (meetingId: string, chunkIndex: number, buffer: ArrayBuffer, prefix?: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.SAVE_AUDIO_CHUNK, meetingId, chunkIndex, buffer, prefix),
   convertToWav: (inputPath: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.CONVERT_TO_WAV, inputPath),
 

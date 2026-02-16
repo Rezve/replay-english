@@ -13,7 +13,6 @@ function formatTimer(seconds: number): string {
 }
 
 type RecordingState = 'idle' | 'recording' | 'processing';
-type AudioSource = 'microphone' | 'system';
 
 export function RecordingPage() {
   const navigate = useNavigate();
@@ -25,17 +24,21 @@ export function RecordingPage() {
   const [audioLevel, setAudioLevel] = useState(0);
   const [chunkCount, setChunkCount] = useState(0);
   const [processingMessage, setProcessingMessage] = useState('');
-  const [audioSource, setAudioSource] = useState<AudioSource>('microphone');
   const [selectedMicId, setSelectedMicId] = useState<string>('');
   const [availableMics, setAvailableMics] = useState<MediaDeviceInfo[]>([]);
+  const [captureDesktop, setCaptureDesktop] = useState(true);
 
   const meetingRef = useRef<Meeting | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const micRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const micStreamRef = useRef<MediaStream | null>(null);
+  const desktopStreamRef = useRef<MediaStream | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animFrameRef = useRef<number>(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const chunkIndexRef = useRef(0);
+  const micChunkIndexRef = useRef(0);
 
   useEffect(() => {
     api.listProfiles().then(setProfiles).catch(console.error);
@@ -77,57 +80,71 @@ export function RecordingPage() {
       });
       meetingRef.current = meeting;
 
-      // Get audio stream based on selected source
-      let stream: MediaStream;
+      // Capture microphone
+      const micStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          deviceId: selectedMicId ? { exact: selectedMicId } : undefined,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+      micStreamRef.current = micStream;
 
-      if (audioSource === 'microphone') {
-        // Capture from microphone
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            deviceId: selectedMicId ? { exact: selectedMicId } : undefined,
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-          },
-        });
-      } else {
-        // Get system audio via desktopCapturer
-        // On Windows, we can capture loopback audio through screen sharing
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            // @ts-expect-error -- Electron-specific constraint for system audio
-            mandatory: {
-              chromeMediaSource: 'desktop',
-            },
-          },
-          video: {
-            // @ts-expect-error -- Electron-specific constraint
-            mandatory: {
-              chromeMediaSource: 'desktop',
-              maxWidth: 1,
-              maxHeight: 1,
-            },
-          },
-        });
+      // Set up audio context for mixing
+      const audioContext = new AudioContext();
+      const destination = audioContext.createMediaStreamDestination();
 
-        // Remove video tracks (we only want audio)
-        stream.getVideoTracks().forEach(track => track.stop());
+      // Add microphone to mix
+      const micSource = audioContext.createMediaStreamSource(micStream);
+      micSource.connect(destination);
+
+      let stream: MediaStream = destination.stream;
+
+      // Optionally capture desktop audio and mix it in
+      if (captureDesktop) {
+        try {
+          const desktopStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              // @ts-expect-error -- Electron-specific constraint for system audio
+              mandatory: {
+                chromeMediaSource: 'desktop',
+              },
+            },
+            video: {
+              // @ts-expect-error -- Electron-specific constraint
+              mandatory: {
+                chromeMediaSource: 'desktop',
+                maxWidth: 1,
+                maxHeight: 1,
+              },
+            },
+          });
+
+          // Remove video tracks
+          desktopStream.getVideoTracks().forEach(track => track.stop());
+          desktopStreamRef.current = desktopStream;
+
+          // Mix desktop audio into the stream
+          const desktopSource = audioContext.createMediaStreamSource(desktopStream);
+          desktopSource.connect(destination);
+        } catch (err) {
+          console.warn('Failed to capture desktop audio, continuing with mic only:', err);
+        }
       }
 
       streamRef.current = stream;
 
-      // Set up audio analysis for level metering
-      const audioContext = new AudioContext();
-      const source = audioContext.createMediaStreamSource(stream);
-      const analyser = audioContext.createAnalyser();
-      analyser.fftSize = 256;
-      source.connect(analyser);
-      analyserRef.current = analyser;
+      // Set up audio analysis for level metering (on mic)
+      const micAnalyser = audioContext.createAnalyser();
+      micAnalyser.fftSize = 256;
+      micSource.connect(micAnalyser);
+      analyserRef.current = micAnalyser;
 
       // Start level metering
       updateAudioLevel();
 
-      // Set up MediaRecorder with 5-minute chunks
+      // Set up MediaRecorder for MIXED audio (mic + desktop) with 5-minute chunks
       const recorder = new MediaRecorder(stream, {
         mimeType: 'audio/webm;codecs=opus',
       });
@@ -139,11 +156,30 @@ export function RecordingPage() {
           const buffer = await e.data.arrayBuffer();
           const idx = chunkIndexRef.current++;
           setChunkCount(idx + 1);
+          // Save mixed audio with 'mixed_' prefix
           await api.saveAudioChunk(meetingRef.current.id, idx, buffer);
         }
       };
 
       recorder.start(300000); // 5-minute chunks
+
+      // Set up SEPARATE recorder for mic-only (for grammar analysis)
+      const micRecorder = new MediaRecorder(micStream, {
+        mimeType: 'audio/webm;codecs=opus',
+      });
+      micRecorderRef.current = micRecorder;
+      micChunkIndexRef.current = 0;
+
+      micRecorder.ondataavailable = async (e) => {
+        if (e.data.size > 0 && meetingRef.current) {
+          const buffer = await e.data.arrayBuffer();
+          const idx = micChunkIndexRef.current++;
+          // Save mic-only audio with 'mic_' prefix for grammar analysis
+          await api.saveAudioChunk(meetingRef.current.id, idx, buffer, 'mic');
+        }
+      };
+
+      micRecorder.start(300000); // 5-minute chunks
 
       // Start timer
       setElapsed(0);
@@ -162,14 +198,23 @@ export function RecordingPage() {
     setState('processing');
     setProcessingMessage('Saving audio...');
 
-    // Stop MediaRecorder
+    // Stop both MediaRecorders
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
     }
+    if (micRecorderRef.current && micRecorderRef.current.state !== 'inactive') {
+      micRecorderRef.current.stop();
+    }
 
-    // Stop stream tracks
+    // Stop all stream tracks
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop());
+    }
+    if (micStreamRef.current) {
+      micStreamRef.current.getTracks().forEach(track => track.stop());
+    }
+    if (desktopStreamRef.current) {
+      desktopStreamRef.current.getTracks().forEach(track => track.stop());
     }
 
     // Stop level metering
@@ -181,7 +226,7 @@ export function RecordingPage() {
       clearInterval(timerRef.current);
     }
 
-    // Wait a bit for the last chunk to be saved
+    // Wait a bit for the last chunks to be saved
     await new Promise(resolve => setTimeout(resolve, 1000));
 
     if (meetingRef.current) {
@@ -227,21 +272,8 @@ export function RecordingPage() {
               className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
             />
 
-            {/* Audio source selection */}
-            <div className="space-y-2">
-              <label className="text-slate-400 text-sm">Audio Source</label>
-              <select
-                value={audioSource}
-                onChange={e => setAudioSource(e.target.value as AudioSource)}
-                className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
-              >
-                <option value="microphone">Microphone</option>
-                <option value="system">System Audio (Desktop)</option>
-              </select>
-            </div>
-
-            {/* Microphone selection (only show when microphone is selected) */}
-            {audioSource === 'microphone' && availableMics.length > 0 && (
+            {/* Microphone selection */}
+            {availableMics.length > 0 && (
               <div className="space-y-2">
                 <label className="text-slate-400 text-sm">Microphone</label>
                 <select
@@ -257,6 +289,23 @@ export function RecordingPage() {
                 </select>
               </div>
             )}
+
+            {/* Desktop audio capture option */}
+            <div className="flex items-center gap-3 px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg">
+              <input
+                type="checkbox"
+                id="captureDesktop"
+                checked={captureDesktop}
+                onChange={e => setCaptureDesktop(e.target.checked)}
+                className="w-4 h-4 text-blue-600 bg-slate-700 border-slate-600 rounded focus:ring-blue-500"
+              />
+              <label htmlFor="captureDesktop" className="text-slate-300 text-sm cursor-pointer flex-1">
+                Also capture desktop audio (everyone in the meeting)
+              </label>
+            </div>
+            <p className="text-slate-500 text-xs -mt-2 px-1">
+              Grammar analysis will only check your microphone speech
+            </p>
 
             {/* Profile selection */}
             {profiles.length > 0 && (
@@ -308,7 +357,8 @@ export function RecordingPage() {
           <div>
             <h2 className="text-2xl font-bold text-white">Ready to Record</h2>
             <p className="text-slate-400 mt-2">
-              Click the button to start capturing {audioSource === 'microphone' ? 'microphone' : 'system audio'}
+              Click to start recording your microphone
+              {captureDesktop && ' + desktop audio'}
             </p>
           </div>
         )}
@@ -318,7 +368,7 @@ export function RecordingPage() {
             <p className="text-3xl font-mono text-white font-bold">{formatTimer(elapsed)}</p>
             <p className="text-red-400 mt-2 flex items-center justify-center gap-2">
               <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-              Recording {audioSource === 'microphone' ? 'microphone' : 'system audio'}
+              Recording microphone{captureDesktop && ' + desktop audio'}
             </p>
             <p className="text-slate-500 text-sm mt-1">
               {chunkCount} chunk{chunkCount !== 1 ? 's' : ''} saved

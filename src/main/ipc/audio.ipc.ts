@@ -5,8 +5,8 @@ import { saveAudioChunk, convertToWav } from '../services/audio.service';
 export function registerAudioHandlers() {
   ipcMain.handle(
     IPC_CHANNELS.SAVE_AUDIO_CHUNK,
-    async (_event, meetingId: string, chunkIndex: number, buffer: ArrayBuffer) => {
-      return await saveAudioChunk(meetingId, chunkIndex, buffer);
+    async (_event, meetingId: string, chunkIndex: number, buffer: ArrayBuffer, prefix?: string) => {
+      return await saveAudioChunk(meetingId, chunkIndex, buffer, prefix);
     }
   );
 

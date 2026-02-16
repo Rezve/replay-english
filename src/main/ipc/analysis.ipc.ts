@@ -40,10 +40,16 @@ export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
       let globalSegmentIndex = 0;
 
       // Get chunk paths automatically if not provided
-      const paths = chunkPaths && chunkPaths.length > 0 ? chunkPaths : getChunkPaths(meetingId);
+      // Use mic-only chunks for grammar analysis (user's speech only)
+      const paths = chunkPaths && chunkPaths.length > 0 ? chunkPaths : getChunkPaths(meetingId, 'mic');
 
       if (paths.length === 0) {
-        throw new Error('No audio chunks found for this meeting. The recording may not have been saved properly.');
+        // Fallback to regular chunks for backward compatibility
+        const fallbackPaths = getChunkPaths(meetingId);
+        if (fallbackPaths.length === 0) {
+          throw new Error('No audio chunks found for this meeting. The recording may not have been saved properly.');
+        }
+        paths.push(...fallbackPaths);
       }
 
       // Phase 1: Transcription
