@@ -13,6 +13,7 @@ function formatTimer(seconds: number): string {
 }
 
 type RecordingState = 'idle' | 'recording' | 'processing';
+type AudioSource = 'microphone' | 'system';
 
 export function RecordingPage() {
   const navigate = useNavigate();
@@ -24,6 +25,9 @@ export function RecordingPage() {
   const [audioLevel, setAudioLevel] = useState(0);
   const [chunkCount, setChunkCount] = useState(0);
   const [processingMessage, setProcessingMessage] = useState('');
+  const [audioSource, setAudioSource] = useState<AudioSource>('microphone');
+  const [selectedMicId, setSelectedMicId] = useState<string>('');
+  const [availableMics, setAvailableMics] = useState<MediaDeviceInfo[]>([]);
 
   const meetingRef = useRef<Meeting | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -35,7 +39,18 @@ export function RecordingPage() {
 
   useEffect(() => {
     api.listProfiles().then(setProfiles).catch(console.error);
-  }, []);
+
+    // Enumerate available microphones
+    navigator.mediaDevices.enumerateDevices()
+      .then(devices => {
+        const mics = devices.filter(d => d.kind === 'audioinput');
+        setAvailableMics(mics);
+        if (mics.length > 0 && !selectedMicId) {
+          setSelectedMicId(mics[0].deviceId);
+        }
+      })
+      .catch(console.error);
+  }, [selectedMicId]);
 
   const getDefaultTitle = () => {
     const now = new Date();
@@ -62,27 +77,42 @@ export function RecordingPage() {
       });
       meetingRef.current = meeting;
 
-      // Get system audio via desktopCapturer
-      // On Windows, we can capture loopback audio through screen sharing
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          // @ts-expect-error -- Electron-specific constraint for system audio
-          mandatory: {
-            chromeMediaSource: 'desktop',
-          },
-        },
-        video: {
-          // @ts-expect-error -- Electron-specific constraint
-          mandatory: {
-            chromeMediaSource: 'desktop',
-            maxWidth: 1,
-            maxHeight: 1,
-          },
-        },
-      });
+      // Get audio stream based on selected source
+      let stream: MediaStream;
 
-      // Remove video tracks (we only want audio)
-      stream.getVideoTracks().forEach(track => track.stop());
+      if (audioSource === 'microphone') {
+        // Capture from microphone
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            deviceId: selectedMicId ? { exact: selectedMicId } : undefined,
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+        });
+      } else {
+        // Get system audio via desktopCapturer
+        // On Windows, we can capture loopback audio through screen sharing
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            // @ts-expect-error -- Electron-specific constraint for system audio
+            mandatory: {
+              chromeMediaSource: 'desktop',
+            },
+          },
+          video: {
+            // @ts-expect-error -- Electron-specific constraint
+            mandatory: {
+              chromeMediaSource: 'desktop',
+              maxWidth: 1,
+              maxHeight: 1,
+            },
+          },
+        });
+
+        // Remove video tracks (we only want audio)
+        stream.getVideoTracks().forEach(track => track.stop());
+      }
 
       streamRef.current = stream;
 
@@ -186,7 +216,7 @@ export function RecordingPage() {
   return (
     <div className="flex flex-col items-center justify-center h-full">
       <div className="text-center space-y-8 max-w-md w-full">
-        {/* Title input */}
+        {/* Title input and settings */}
         {state === 'idle' && (
           <div className="space-y-4">
             <input
@@ -196,17 +226,53 @@ export function RecordingPage() {
               placeholder={getDefaultTitle()}
               className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
             />
-            {profiles.length > 0 && (
+
+            {/* Audio source selection */}
+            <div className="space-y-2">
+              <label className="text-slate-400 text-sm">Audio Source</label>
               <select
-                value={selectedProfileId}
-                onChange={e => setSelectedProfileId(e.target.value)}
+                value={audioSource}
+                onChange={e => setAudioSource(e.target.value as AudioSource)}
                 className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
               >
-                <option value="">No profile</option>
-                {profiles.map(p => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
+                <option value="microphone">Microphone</option>
+                <option value="system">System Audio (Desktop)</option>
               </select>
+            </div>
+
+            {/* Microphone selection (only show when microphone is selected) */}
+            {audioSource === 'microphone' && availableMics.length > 0 && (
+              <div className="space-y-2">
+                <label className="text-slate-400 text-sm">Microphone</label>
+                <select
+                  value={selectedMicId}
+                  onChange={e => setSelectedMicId(e.target.value)}
+                  className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                >
+                  {availableMics.map(mic => (
+                    <option key={mic.deviceId} value={mic.deviceId}>
+                      {mic.label || `Microphone ${mic.deviceId.substring(0, 8)}`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Profile selection */}
+            {profiles.length > 0 && (
+              <div className="space-y-2">
+                <label className="text-slate-400 text-sm">Profile (optional)</label>
+                <select
+                  value={selectedProfileId}
+                  onChange={e => setSelectedProfileId(e.target.value)}
+                  className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                >
+                  <option value="">No profile</option>
+                  {profiles.map(p => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              </div>
             )}
           </div>
         )}
@@ -242,7 +308,7 @@ export function RecordingPage() {
           <div>
             <h2 className="text-2xl font-bold text-white">Ready to Record</h2>
             <p className="text-slate-400 mt-2">
-              Click the button to start capturing system audio
+              Click the button to start capturing {audioSource === 'microphone' ? 'microphone' : 'system audio'}
             </p>
           </div>
         )}
@@ -252,7 +318,7 @@ export function RecordingPage() {
             <p className="text-3xl font-mono text-white font-bold">{formatTimer(elapsed)}</p>
             <p className="text-red-400 mt-2 flex items-center justify-center gap-2">
               <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-              Recording system audio
+              Recording {audioSource === 'microphone' ? 'microphone' : 'system audio'}
             </p>
             <p className="text-slate-500 text-sm mt-1">
               {chunkCount} chunk{chunkCount !== 1 ? 's' : ''} saved

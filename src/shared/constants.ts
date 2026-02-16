@@ -65,7 +65,9 @@ export const IPC_CHANNELS = {
 
   // Prerequisites
   CHECK_PREREQUISITES: 'prerequisites:check',
+  DOWNLOAD_WHISPER_MODEL: 'prerequisites:download-whisper-model',
 
   // Events
   PROGRESS: 'event:progress',
+  DOWNLOAD_PROGRESS: 'event:download-progress',
 } as const;

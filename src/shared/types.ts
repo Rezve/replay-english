@@ -110,6 +110,12 @@ export interface ProgressEvent {
   message: string;
 }
 
+export interface DownloadProgressEvent {
+  downloaded: number;
+  total: number;
+  percentage: number;
+}
+
 // Electron API exposed via preload
 export interface ElectronAPI {
   // Audio
@@ -142,13 +148,15 @@ export interface ElectronAPI {
   updateSettings(settings: Partial<AppSettings>): Promise<void>;
 
   // Pipeline
-  processMeeting(meetingId: string, chunkPaths: string[]): Promise<{ segments: TranscriptSegment[]; mistakes: Mistake[] }>;
+  processMeeting(meetingId: string, chunkPaths?: string[]): Promise<{ segments: TranscriptSegment[]; mistakes: Mistake[] }>;
 
   // Prerequisites
   checkPrerequisites(): Promise<PrerequisiteStatus>;
+  downloadWhisperModel(modelName?: string): Promise<void>;
 
   // Events
   onProgress(callback: (event: ProgressEvent) => void): () => void;
+  onDownloadProgress(callback: (event: DownloadProgressEvent) => void): () => void;
 }
 
 declare global {

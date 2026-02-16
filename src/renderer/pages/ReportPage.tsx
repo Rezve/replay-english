@@ -55,10 +55,44 @@ export function ReportPage() {
   useEffect(() => {
     if (!id) return;
 
+    let processingStarted = false;
+
     const loadMeeting = async () => {
       const data = await api.getMeeting(id);
       setMeeting(data);
       setLoading(false);
+
+      // Auto-start processing if meeting is in transcribing status
+      if (data && data.status === 'transcribing' && !processingStarted) {
+        processingStarted = true;
+        startProcessing(data.id);
+      }
+    };
+
+    const startProcessing = async (meetingId: string) => {
+      try {
+        // Check prerequisites before processing
+        const prereqs = await api.checkPrerequisites();
+        if (!prereqs.whisperModel) {
+          console.error('Whisper model not found - cannot transcribe');
+          await api.updateMeetingStatus(meetingId, 'failed');
+          alert('Whisper model not found. Please download it from the Setup page before transcribing.');
+          loadMeeting();
+          return;
+        }
+
+        // The backend will automatically find and process the audio chunks
+        await api.processMeeting(meetingId);
+
+        // Reload meeting after processing
+        loadMeeting();
+      } catch (err: any) {
+        console.error('Processing failed:', err);
+        const errorMsg = err?.message || 'Unknown error';
+        alert(`Transcription failed: ${errorMsg}`);
+        await api.updateMeetingStatus(meetingId, 'failed');
+        loadMeeting();
+      }
     };
 
     loadMeeting();

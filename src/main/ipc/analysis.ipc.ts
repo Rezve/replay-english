@@ -26,10 +26,10 @@ export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
   // Full pipeline: transcribe + analyze
   ipcMain.handle(
     'pipeline:process-meeting',
-    async (_event, meetingId: string, chunkPaths: string[]) => {
+    async (_event, meetingId: string, chunkPaths?: string[]) => {
       // This will be called from the renderer after recording stops
       // It handles the full pipeline: convert -> transcribe -> analyze
-      const { convertToWav } = await import('../services/audio.service');
+      const { convertToWav, getChunkPaths } = await import('../services/audio.service');
       const { transcribeWav } = await import('../services/whisper.service');
       const { v4: uuidv4 } = await import('uuid');
       const { getDb } = await import('../db/connection');
@@ -39,16 +39,23 @@ export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
       const allSegments: TranscriptSegment[] = [];
       let globalSegmentIndex = 0;
 
+      // Get chunk paths automatically if not provided
+      const paths = chunkPaths && chunkPaths.length > 0 ? chunkPaths : getChunkPaths(meetingId);
+
+      if (paths.length === 0) {
+        throw new Error('No audio chunks found for this meeting. The recording may not have been saved properly.');
+      }
+
       // Phase 1: Transcription
-      for (let i = 0; i < chunkPaths.length; i++) {
+      for (let i = 0; i < paths.length; i++) {
         mainWindow.webContents.send(IPC_CHANNELS.PROGRESS, {
           stage: 'transcribing',
           current: i + 1,
-          total: chunkPaths.length,
-          message: `Converting and transcribing chunk ${i + 1} of ${chunkPaths.length}...`,
+          total: paths.length,
+          message: `Converting and transcribing chunk ${i + 1} of ${paths.length}...`,
         });
 
-        const wavPath = await convertToWav(chunkPaths[i]);
+        const wavPath = await convertToWav(paths[i]);
         const chunkOffset = i * 300;
         const segments = await transcribeWav(wavPath);
 

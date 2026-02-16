@@ -12,5 +12,5 @@ export function registerAllIpcHandlers(mainWindow: BrowserWindow): void {
   registerAudioHandlers();
   registerTranscriptionHandlers(mainWindow);
   registerAnalysisHandlers(mainWindow);
-  registerPrerequisitesHandlers();
+  registerPrerequisitesHandlers(mainWindow);
 }

@@ -76,23 +76,99 @@ export async function transcribeWav(
     throw new Error(`Whisper binary not found at: ${binaryPath}`);
   }
   if (!fs.existsSync(modelPath)) {
-    throw new Error(`Whisper model not found at: ${modelPath}`);
+    throw new Error(`Whisper model not found at: ${modelPath}. Please download the model from the Setup page.`);
+  }
+  if (!fs.existsSync(wavPath)) {
+    throw new Error(`WAV file not found at: ${wavPath}`);
   }
 
-  // Run whisper.cpp with JSON output
-  const { stdout } = await execFileAsync(binaryPath, [
-    '-m', modelPath,
-    '-f', wavPath,
-    '-l', 'en',
-    '-oj',           // output JSON
-    '--no-prints',   // suppress progress output
-  ], {
-    timeout: 600000, // 10 minute timeout per chunk
-    maxBuffer: 50 * 1024 * 1024, // 50MB buffer
-  });
+  // Check WAV file size
+  const wavStats = fs.statSync(wavPath);
+  if (wavStats.size === 0) {
+    throw new Error(`WAV file is empty: ${wavPath}`);
+  }
+  if (wavStats.size < 1000) {
+    throw new Error(`WAV file is too small (${wavStats.size} bytes), likely corrupted: ${wavPath}`);
+  }
 
-  // Parse JSON output
-  const output: WhisperOutput = JSON.parse(stdout);
+  console.log(`Transcribing: ${wavPath} (${Math.round(wavStats.size / 1024)}KB)`);
+  console.log(`Using model: ${modelPath}`);
+  console.log(`Using binary: ${binaryPath}`);
+
+  // Run whisper.cpp with JSON output to file
+  // Remove file extension to get base path for -of flag
+  const outputBase = wavPath.replace(/\.(wav|mp3|m4a)$/i, '');
+  const jsonPath = `${outputBase}.json`;
+
+  try {
+    await execFileAsync(binaryPath, [
+      '-m', modelPath,
+      '-f', wavPath,
+      '-l', 'en',
+      '-oj',           // output JSON to file
+      '-of', outputBase, // output file base path (without extension)
+      '-np',           // no-prints (suppress console output)
+    ], {
+      timeout: 600000, // 10 minute timeout per chunk
+      maxBuffer: 50 * 1024 * 1024, // 50MB buffer
+    });
+    console.log('Whisper completed successfully');
+    console.log('JSON output path:', jsonPath);
+  } catch (err: any) {
+    console.error('Whisper command failed with error:', err);
+    console.error('Exit code:', err.code);
+    console.error('stderr:', err.stderr);
+    console.error('stdout:', err.stdout);
+    const errorMsg = err.stderr || err.stdout || err.message || 'Unknown error';
+    const exitCode = err.code || 'unknown';
+    throw new Error(`Whisper transcription failed (exit code: ${exitCode}): ${errorMsg}`);
+  }
+
+  // Wait a moment for file to be fully written
+  await new Promise(resolve => setTimeout(resolve, 100));
+
+  // Read and parse JSON output file
+  let output: WhisperOutput;
+
+  // Check if file exists
+  if (!fs.existsSync(jsonPath)) {
+    const dir = path.dirname(wavPath);
+    const filesInDir = fs.readdirSync(dir);
+    console.error('JSON file not found!');
+    console.error('Expected path:', jsonPath);
+    console.error('Files in directory:', filesInDir);
+    throw new Error(`JSON output file not found at: ${jsonPath}`);
+  }
+
+  // Read JSON file
+  let jsonContent: string;
+  try {
+    jsonContent = fs.readFileSync(jsonPath, 'utf-8');
+    console.log('Successfully read JSON file:', jsonContent.length, 'bytes');
+  } catch (err: any) {
+    console.error('Failed to read JSON file:', err.message);
+    throw new Error(`Failed to read JSON file from ${jsonPath}: ${err.message}`);
+  }
+
+  // Parse JSON content
+  try {
+    console.log('Parsing JSON content...');
+    console.log('First 200 chars:', jsonContent.substring(0, 200));
+    output = JSON.parse(jsonContent);
+    console.log('JSON parsed successfully, transcription segments:', output.transcription?.length || 0);
+  } catch (err: any) {
+    console.error('Failed to parse JSON:', err.message);
+    console.error('JSON content preview:', jsonContent.substring(0, 500));
+    throw new Error(`Failed to parse JSON from ${jsonPath}: ${err.message}`);
+  }
+
+  // Clean up JSON file
+  try {
+    fs.unlinkSync(jsonPath);
+    console.log('Cleaned up JSON file');
+  } catch (err: any) {
+    console.warn('Failed to delete JSON file:', err.message);
+  }
 
   return output.transcription.map(seg => ({
     startTime: seg.offsets.from / 1000, // ms to seconds

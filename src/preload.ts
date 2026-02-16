@@ -7,6 +7,7 @@ import type {
   TimeRange,
   TranscriptSegment,
   ProgressEvent,
+  DownloadProgressEvent,
 } from './shared/types';
 
 const electronAPI: ElectronAPI = {
@@ -61,12 +62,19 @@ const electronAPI: ElectronAPI = {
   // Prerequisites
   checkPrerequisites: () =>
     ipcRenderer.invoke(IPC_CHANNELS.CHECK_PREREQUISITES),
+  downloadWhisperModel: (modelName?: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.DOWNLOAD_WHISPER_MODEL, modelName),
 
   // Events
   onProgress: (callback: (event: ProgressEvent) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, data: ProgressEvent) => callback(data);
     ipcRenderer.on(IPC_CHANNELS.PROGRESS, handler);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.PROGRESS, handler);
+  },
+  onDownloadProgress: (callback: (event: DownloadProgressEvent) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: DownloadProgressEvent) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.DOWNLOAD_PROGRESS, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.DOWNLOAD_PROGRESS, handler);
   },
 };
 
