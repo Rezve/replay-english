@@ -7,10 +7,11 @@ import {
   ChevronLeft,
   ChevronRight,
   Loader2,
+  RefreshCw,
   X,
 } from 'lucide-react';
 import { api } from '../lib/api';
-import type { MeetingWithAnalysis, Mistake, ProgressEvent } from '../../shared/types';
+import type { MeetingWithAnalysis, Mistake, ProgressEvent, AnalysisBatchEvent } from '../../shared/types';
 
 function formatTime(seconds: number): string {
   const mins = Math.floor(seconds / 60);
@@ -51,7 +52,28 @@ export function ReportPage() {
   const [selectedMistake, setSelectedMistake] = useState<Mistake | null>(null);
   const [mistakeIndex, setMistakeIndex] = useState(0);
   const [progress, setProgress] = useState<ProgressEvent | null>(null);
+  const [reanalyzing, setReanalyzing] = useState(false);
   const processingStartedRef = React.useRef(false);
+
+  const handleReAnalyze = async () => {
+    if (!meeting || !id) return;
+    setReanalyzing(true);
+    setSelectedMistake(null);
+    setMistakeIndex(0);
+    setMeeting(prev => prev ? { ...prev, mistakes: [], totalMistakes: 0, overallScore: null, status: 'analyzing' } : prev);
+    try {
+      await api.reAnalyzeMeeting(id);
+      const data = await api.getMeeting(id);
+      setMeeting(data);
+    } catch (err: any) {
+      console.error('Re-analysis failed:', err);
+      alert(`Re-analysis failed: ${err?.message || 'Unknown error'}`);
+      const data = await api.getMeeting(id);
+      setMeeting(data);
+    } finally {
+      setReanalyzing(false);
+    }
+  };
 
   useEffect(() => {
     if (!id) return;
@@ -100,15 +122,34 @@ export function ReportPage() {
     loadMeeting();
 
     // Listen for progress events
-    const unsubscribe = api.onProgress((event: ProgressEvent) => {
+    const unsubProgress = api.onProgress((event: ProgressEvent) => {
       setProgress(event);
-      // Reload meeting data when analysis completes
+      // Reload full meeting data when analysis completes (for score/stats)
       if (event.current === event.total && event.stage === 'analyzing') {
         setTimeout(loadMeeting, 1000);
       }
     });
 
-    return unsubscribe;
+    // Listen for batch results — show mistakes as they arrive
+    const unsubBatch = api.onAnalysisBatch((event: AnalysisBatchEvent) => {
+      if (event.meetingId !== id) return;
+      setMeeting(prev => {
+        if (!prev) return prev;
+        const existingIds = new Set(prev.mistakes.map(m => m.id));
+        const newMistakes = event.mistakes.filter(m => !existingIds.has(m.id));
+        if (newMistakes.length === 0) return prev;
+        return {
+          ...prev,
+          mistakes: [...prev.mistakes, ...newMistakes],
+          totalMistakes: prev.totalMistakes + newMistakes.length,
+        };
+      });
+    });
+
+    return () => {
+      unsubProgress();
+      unsubBatch();
+    };
   }, [id]);
 
   const getMistakesForSegment = (segmentId: string): Mistake[] => {
@@ -146,7 +187,7 @@ export function ReportPage() {
     );
   }
 
-  const isProcessing = meeting.status === 'transcribing' || meeting.status === 'analyzing';
+  const isProcessing = meeting.status === 'transcribing' || meeting.status === 'analyzing' || reanalyzing;
 
   return (
     <div className="h-full flex flex-col">
@@ -170,22 +211,36 @@ export function ReportPage() {
               )}
             </div>
           </div>
-          {meeting.status === 'completed' && (
-            <div className="flex items-center gap-4">
-              <div className="text-center">
-                <p className="text-3xl font-bold text-white">{meeting.overallScore !== null ? Math.round(meeting.overallScore) : '--'}</p>
-                <p className="text-xs text-slate-400">Score</p>
-              </div>
-              <div className="text-center">
-                <p className="text-3xl font-bold text-orange-400">{meeting.totalMistakes}</p>
-                <p className="text-xs text-slate-400">Mistakes</p>
-              </div>
-            </div>
-          )}
+          <div className="flex items-center gap-4">
+            {(meeting.status === 'completed' || meeting.mistakes.length > 0) && (
+              <>
+                {meeting.status === 'completed' && (
+                  <div className="text-center">
+                    <p className="text-3xl font-bold text-white">{meeting.overallScore !== null ? Math.round(meeting.overallScore) : '--'}</p>
+                    <p className="text-xs text-slate-400">Score</p>
+                  </div>
+                )}
+                <div className="text-center">
+                  <p className="text-3xl font-bold text-orange-400">{meeting.mistakes.length}</p>
+                  <p className="text-xs text-slate-400">Mistakes{meeting.status === 'analyzing' ? ' so far' : ''}</p>
+                </div>
+              </>
+            )}
+            {(meeting.status === 'completed' || meeting.status === 'failed') && meeting.segments.length > 0 && (
+              <button
+                onClick={handleReAnalyze}
+                disabled={reanalyzing}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white rounded-lg transition-colors disabled:opacity-50"
+              >
+                <RefreshCw size={14} className={reanalyzing ? 'animate-spin' : ''} />
+                Re-analyze
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Summary stats */}
-        {meeting.status === 'completed' && meeting.mistakes.length > 0 && (
+        {meeting.mistakes.length > 0 && (
           <div className="flex gap-3 mt-4">
             {(['minor', 'moderate', 'major'] as const).map(sev => {
               const count = meeting.mistakes.filter(m => m.severity === sev).length;
@@ -210,6 +265,11 @@ export function ReportPage() {
             </p>
             {progress && (
               <p className="text-blue-400/60 text-sm">{progress.message}</p>
+            )}
+            {meeting.status === 'analyzing' && meeting.mistakes.length > 0 && (
+              <p className="text-blue-400/60 text-sm mt-1">
+                {meeting.mistakes.length} mistake{meeting.mistakes.length !== 1 ? 's' : ''} found so far — you can start reviewing below
+              </p>
             )}
           </div>
         </div>

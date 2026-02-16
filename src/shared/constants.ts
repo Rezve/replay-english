@@ -43,6 +43,7 @@ export const IPC_CHANNELS = {
 
   // Analysis
   ANALYZE_TRANSCRIPT: 'analysis:analyze-transcript',
+  RE_ANALYZE_MEETING: 'analysis:re-analyze',
 
   // Meetings
   CREATE_MEETING: 'meeting:create',
@@ -72,4 +73,5 @@ export const IPC_CHANNELS = {
   // Events
   PROGRESS: 'event:progress',
   DOWNLOAD_PROGRESS: 'event:download-progress',
+  ANALYSIS_BATCH_READY: 'event:analysis-batch-ready',
 } as const;

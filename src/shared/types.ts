@@ -116,6 +116,14 @@ export interface DownloadProgressEvent {
   percentage: number;
 }
 
+export interface AnalysisBatchEvent {
+  meetingId: string;
+  mistakes: Mistake[];
+  batchIndex: number;
+  totalBatches: number;
+  done: boolean;
+}
+
 export interface GpuInfo {
   available: boolean;
   name?: string;
@@ -134,6 +142,7 @@ export interface ElectronAPI {
 
   // Analysis
   analyzeTranscript(meetingId: string, segments: TranscriptSegment[]): Promise<Mistake[]>;
+  reAnalyzeMeeting(meetingId: string): Promise<Mistake[]>;
 
   // Meetings
   createMeeting(data: CreateMeetingInput): Promise<Meeting>;
@@ -166,6 +175,7 @@ export interface ElectronAPI {
   // Events
   onProgress(callback: (event: ProgressEvent) => void): () => void;
   onDownloadProgress(callback: (event: DownloadProgressEvent) => void): () => void;
+  onAnalysisBatch(callback: (event: AnalysisBatchEvent) => void): () => void;
 }
 
 declare global {

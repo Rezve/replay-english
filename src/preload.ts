@@ -8,6 +8,7 @@ import type {
   TranscriptSegment,
   ProgressEvent,
   DownloadProgressEvent,
+  AnalysisBatchEvent,
   WhisperBinaryVariant,
 } from './shared/types';
 
@@ -25,6 +26,8 @@ const electronAPI: ElectronAPI = {
   // Analysis
   analyzeTranscript: (meetingId: string, segments: TranscriptSegment[]) =>
     ipcRenderer.invoke(IPC_CHANNELS.ANALYZE_TRANSCRIPT, meetingId, segments),
+  reAnalyzeMeeting: (meetingId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.RE_ANALYZE_MEETING, meetingId),
 
   // Meetings
   createMeeting: (data: CreateMeetingInput) =>
@@ -80,6 +83,11 @@ const electronAPI: ElectronAPI = {
     const handler = (_event: Electron.IpcRendererEvent, data: DownloadProgressEvent) => callback(data);
     ipcRenderer.on(IPC_CHANNELS.DOWNLOAD_PROGRESS, handler);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.DOWNLOAD_PROGRESS, handler);
+  },
+  onAnalysisBatch: (callback: (event: AnalysisBatchEvent) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: AnalysisBatchEvent) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.ANALYSIS_BATCH_READY, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.ANALYSIS_BATCH_READY, handler);
   },
 };
 

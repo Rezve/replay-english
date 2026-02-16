@@ -5,13 +5,14 @@ import * as schema from '../db/schema';
 import { analyzeSegments, type AnalysisResult } from './ollama.service';
 import type { TranscriptSegment, Mistake } from '../../shared/types';
 
-const BATCH_SIZE = 12; // segments per Ollama call
+const BATCH_SIZE = 4; // smaller batches for slower local LLMs
 
 export async function analyzeTranscript(
   meetingId: string,
   segments: TranscriptSegment[],
   modelName: string = 'qwen2.5:7b',
-  onProgress?: (current: number, total: number) => void
+  onProgress?: (current: number, total: number) => void,
+  onBatchComplete?: (mistakes: Mistake[], batchIndex: number, totalBatches: number, done: boolean) => void
 ): Promise<Mistake[]> {
   const db = getDb();
   const allMistakes: Mistake[] = [];
@@ -42,13 +43,14 @@ export async function analyzeTranscript(
     }
 
     // Map results to mistakes
+    const mistakesBefore = allMistakes.length;
     for (const result of results) {
       // Find the matching segment
       const segment = segments.find(s => s.segmentIndex === result.segmentIndex);
       if (!segment) continue;
 
       // Find or create category
-      let categoryId = categoryMap.get(result.category.toLowerCase()) || null;
+      let categoryId = result.category ? (categoryMap.get(result.category.toLowerCase()) || null) : null;
       if (!categoryId && result.category) {
         // Determine parent category
         let parentCategory = 'Grammar';
@@ -93,6 +95,13 @@ export async function analyzeTranscript(
       });
 
       allMistakes.push(mistake);
+    }
+
+    // Notify renderer with this batch's results immediately
+    if (onBatchComplete) {
+      const batchMistakes = allMistakes.slice(mistakesBefore);
+      const done = batchIdx === batches.length - 1;
+      onBatchComplete(batchMistakes, batchIdx, batches.length, done);
     }
   }
 
