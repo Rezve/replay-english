@@ -90,3 +90,7 @@ typings/
 
 # Electron-Forge
 out/
+
+# Whisper binaries and DLLs
+resources/whisper/*.exe
+resources/whisper/*.dll

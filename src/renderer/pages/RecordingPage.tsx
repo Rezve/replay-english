@@ -39,6 +39,7 @@ export function RecordingPage() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const chunkIndexRef = useRef(0);
   const micChunkIndexRef = useRef(0);
+  const chunkRotationRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     api.listProfiles().then(setProfiles).catch(console.error);
@@ -144,42 +145,60 @@ export function RecordingPage() {
       // Start level metering
       updateAudioLevel();
 
-      // Set up MediaRecorder for MIXED audio (mic + desktop) with 5-minute chunks
-      const recorder = new MediaRecorder(stream, {
-        mimeType: 'audio/webm;codecs=opus',
-      });
-      mediaRecorderRef.current = recorder;
+      // Factory: create a mixed audio recorder (mic + desktop)
       chunkIndexRef.current = 0;
-
-      recorder.ondataavailable = async (e) => {
-        if (e.data.size > 0 && meetingRef.current) {
-          const buffer = await e.data.arrayBuffer();
-          const idx = chunkIndexRef.current++;
-          setChunkCount(idx + 1);
-          // Save mixed audio with 'mixed_' prefix
-          await api.saveAudioChunk(meetingRef.current.id, idx, buffer);
-        }
+      const createMixedRecorder = () => {
+        const rec = new MediaRecorder(stream, {
+          mimeType: 'audio/webm;codecs=opus',
+        });
+        rec.ondataavailable = async (e) => {
+          if (e.data.size > 0 && meetingRef.current) {
+            const buffer = await e.data.arrayBuffer();
+            const idx = chunkIndexRef.current++;
+            setChunkCount(idx + 1);
+            await api.saveAudioChunk(meetingRef.current.id, idx, buffer);
+          }
+        };
+        return rec;
       };
 
-      recorder.start(300000); // 5-minute chunks
-
-      // Set up SEPARATE recorder for mic-only (for grammar analysis)
-      const micRecorder = new MediaRecorder(micStream, {
-        mimeType: 'audio/webm;codecs=opus',
-      });
-      micRecorderRef.current = micRecorder;
+      // Factory: create a mic-only recorder (for grammar analysis)
       micChunkIndexRef.current = 0;
-
-      micRecorder.ondataavailable = async (e) => {
-        if (e.data.size > 0 && meetingRef.current) {
-          const buffer = await e.data.arrayBuffer();
-          const idx = micChunkIndexRef.current++;
-          // Save mic-only audio with 'mic_' prefix for grammar analysis
-          await api.saveAudioChunk(meetingRef.current.id, idx, buffer, 'mic');
-        }
+      const createMicRecorder = () => {
+        const rec = new MediaRecorder(micStream, {
+          mimeType: 'audio/webm;codecs=opus',
+        });
+        rec.ondataavailable = async (e) => {
+          if (e.data.size > 0 && meetingRef.current) {
+            const buffer = await e.data.arrayBuffer();
+            const idx = micChunkIndexRef.current++;
+            await api.saveAudioChunk(meetingRef.current.id, idx, buffer, 'mic');
+          }
+        };
+        return rec;
       };
 
-      micRecorder.start(300000); // 5-minute chunks
+      // Start both recorders WITHOUT timeslice — each start() produces a
+      // complete WebM file with proper EBML headers when stop() is called.
+      mediaRecorderRef.current = createMixedRecorder();
+      mediaRecorderRef.current.start();
+
+      micRecorderRef.current = createMicRecorder();
+      micRecorderRef.current.start();
+
+      // Rotate recorders every 5 minutes: stop (finalizes current chunk) → start new
+      chunkRotationRef.current = setInterval(() => {
+        if (mediaRecorderRef.current?.state === 'recording') {
+          mediaRecorderRef.current.stop();
+          mediaRecorderRef.current = createMixedRecorder();
+          mediaRecorderRef.current.start();
+        }
+        if (micRecorderRef.current?.state === 'recording') {
+          micRecorderRef.current.stop();
+          micRecorderRef.current = createMicRecorder();
+          micRecorderRef.current.start();
+        }
+      }, 300000); // 5 minutes
 
       // Start timer
       setElapsed(0);
@@ -198,7 +217,13 @@ export function RecordingPage() {
     setState('processing');
     setProcessingMessage('Saving audio...');
 
-    // Stop both MediaRecorders
+    // Stop chunk rotation
+    if (chunkRotationRef.current) {
+      clearInterval(chunkRotationRef.current);
+      chunkRotationRef.current = null;
+    }
+
+    // Stop both MediaRecorders (triggers final ondataavailable with complete chunk)
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
     }
@@ -246,6 +271,7 @@ export function RecordingPage() {
     return () => {
       cancelAnimationFrame(animFrameRef.current);
       if (timerRef.current) clearInterval(timerRef.current);
+      if (chunkRotationRef.current) clearInterval(chunkRotationRef.current);
     };
   }, []);
 
