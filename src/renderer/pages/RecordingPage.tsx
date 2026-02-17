@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useBlocker } from 'react-router-dom';
 import { Mic, Square, Loader2 } from 'lucide-react';
 import { api } from '../lib/api';
 import type { Meeting, Profile } from '../../shared/types';
@@ -27,6 +27,8 @@ export function RecordingPage() {
   const [selectedMicId, setSelectedMicId] = useState<string>('');
   const [availableMics, setAvailableMics] = useState<MediaDeviceInfo[]>([]);
   const [captureDesktop, setCaptureDesktop] = useState(true);
+
+  const blocker = useBlocker(state === 'recording');
 
   const meetingRef = useRef<Meeting | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -254,12 +256,17 @@ export function RecordingPage() {
     meetingRef.current = null;
   };
 
-  // Cleanup on unmount
+  // Cleanup on unmount — release all media resources
   useEffect(() => {
     return () => {
       cancelAnimationFrame(animFrameRef.current);
       if (timerRef.current) clearInterval(timerRef.current);
       if (chunkRotationRef.current) clearInterval(chunkRotationRef.current);
+      if (mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop();
+      if (micRecorderRef.current?.state === 'recording') micRecorderRef.current.stop();
+      streamRef.current?.getTracks().forEach(t => t.stop());
+      micStreamRef.current?.getTracks().forEach(t => t.stop());
+      desktopStreamRef.current?.getTracks().forEach(t => t.stop());
     };
   }, []);
 
@@ -390,6 +397,32 @@ export function RecordingPage() {
           </div>
         )}
       </div>
+
+      {/* Navigation guard modal */}
+      {blocker.state === 'blocked' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 max-w-sm w-full mx-4 shadow-2xl">
+            <h3 className="text-lg font-semibold text-white mb-2">Stop recording?</h3>
+            <p className="text-slate-400 text-sm mb-6">
+              A recording is in progress. If you leave this page, the current recording will be lost.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => blocker.reset()}
+                className="px-4 py-2 rounded-lg bg-slate-700 text-white hover:bg-slate-600 transition-colors"
+              >
+                Stay
+              </button>
+              <button
+                onClick={() => blocker.proceed()}
+                className="px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors"
+              >
+                Leave &amp; Discard
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
