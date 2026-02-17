@@ -21,7 +21,7 @@ export interface Meeting {
   notes: string | null;
 }
 
-export type MeetingStatus = 'recording' | 'transcribing' | 'analyzing' | 'completed' | 'failed';
+export type MeetingStatus = 'recording' | 'transcribing' | 'analyzing' | 'transcribed' | 'completed' | 'failed';
 
 export interface TranscriptSegment {
   id: string;
@@ -179,6 +179,11 @@ export interface AnalysisBatchEvent {
   done: boolean;
 }
 
+export interface AudioChunkInfo {
+  filename: string;
+  size: number;
+}
+
 export interface GpuInfo {
   available: boolean;
   name?: string;
@@ -196,6 +201,8 @@ export interface ElectronAPI {
   // Audio
   saveAudioChunk(meetingId: string, chunkIndex: number, buffer: ArrayBuffer, prefix?: string): Promise<string>;
   convertToWav(inputPath: string): Promise<string>;
+  getAudioChunks(meetingId: string): Promise<AudioChunkInfo[]>;
+  readAudioChunk(meetingId: string, filename: string): Promise<ArrayBuffer | null>;
 
   // Transcription
   transcribeChunk(wavPath: string): Promise<TranscriptSegment[]>;
@@ -203,6 +210,8 @@ export interface ElectronAPI {
   // Analysis
   analyzeTranscript(meetingId: string, segments: TranscriptSegment[]): Promise<Mistake[]>;
   reAnalyzeMeeting(meetingId: string): Promise<Mistake[]>;
+  stopAnalysis(meetingId: string): Promise<void>;
+  startAnalysis(meetingId: string): Promise<Mistake[]>;
 
   // Meetings
   createMeeting(data: CreateMeetingInput): Promise<Meeting>;

@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { IPC_CHANNELS, DEFAULT_SETTINGS } from '../../shared/constants';
 import { getDb } from '../db/connection';
 import * as dbSchema from '../db/schema';
-import { analyzeTranscript, runContextAnalyses } from '../services/analysis.service';
+import { analyzeTranscript, runContextAnalyses, cancelAnalysis } from '../services/analysis.service';
 import type { TranscriptSegment, AnalysisBatchEvent, ContextAnalysisType } from '../../shared/types';
 
 async function getSettingsMap(): Promise<Record<string, string>> {
@@ -142,6 +142,13 @@ export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
         }
       );
 
+      // Check if analysis was cancelled — if so, return early
+      const { isAnalysisCancelled } = await import('../services/analysis.service');
+      const meetingAfterAnalysis = await db.select().from(pipelineSchema.meetings).where(require('drizzle-orm').eq(pipelineSchema.meetings.id, meetingId)).get();
+      if (meetingAfterAnalysis?.status === 'transcribed' || isAnalysisCancelled(meetingId)) {
+        return { segments: allSegments, mistakes };
+      }
+
       // Phase 3: Context analyses
       const enabledTypes = getEnabledAnalysisTypes(settingsMap);
       if (enabledTypes.length > 0) {
@@ -266,6 +273,91 @@ export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
           });
         }
       );
+    }
+  );
+
+  // Stop ongoing analysis — sets cancellation flag and updates status to 'transcribed'
+  ipcMain.handle(
+    IPC_CHANNELS.STOP_ANALYSIS,
+    async (_event, meetingId: string) => {
+      cancelAnalysis(meetingId);
+      const db = getDb();
+      await db.update(dbSchema.meetings)
+        .set({ status: 'transcribed' })
+        .where(eq(dbSchema.meetings.id, meetingId));
+    }
+  );
+
+  // Start analysis on a meeting that has transcription but analysis was stopped or never ran
+  ipcMain.handle(
+    IPC_CHANNELS.START_ANALYSIS,
+    async (_event, meetingId: string) => {
+      const db = getDb();
+
+      const segments = await db.select().from(dbSchema.transcriptSegments)
+        .where(eq(dbSchema.transcriptSegments.meetingId, meetingId))
+        .orderBy(dbSchema.transcriptSegments.segmentIndex)
+        .all();
+
+      if (segments.length === 0) {
+        throw new Error('No transcript segments found. The meeting must be transcribed first.');
+      }
+
+      // Delete any existing partial mistakes
+      await db.delete(dbSchema.mistakes).where(eq(dbSchema.mistakes.meetingId, meetingId));
+
+      // Set status to analyzing
+      await db.update(dbSchema.meetings)
+        .set({ status: 'analyzing', totalMistakes: 0, overallScore: null })
+        .where(eq(dbSchema.meetings.id, meetingId));
+
+      const settingsMap = await getSettingsMap();
+      const ollamaModel = settingsMap['ollamaModel'] || DEFAULT_SETTINGS.ollamaModel;
+
+      const mistakes = await analyzeTranscript(
+        meetingId,
+        segments,
+        ollamaModel,
+        (current, total) => {
+          mainWindow.webContents.send(IPC_CHANNELS.PROGRESS, {
+            stage: 'analyzing',
+            current,
+            total,
+            message: `Analyzing batch ${current} of ${total}...`,
+          });
+        },
+        (batchMistakes, batchIndex, totalBatches, done) => {
+          const event: AnalysisBatchEvent = { meetingId, mistakes: batchMistakes, batchIndex, totalBatches, done };
+          mainWindow.webContents.send(IPC_CHANNELS.ANALYSIS_BATCH_READY, event);
+        }
+      );
+
+      // If analysis was cancelled mid-way, don't run context analyses
+      const meeting = await db.select().from(dbSchema.meetings).where(eq(dbSchema.meetings.id, meetingId)).get();
+      if (meeting?.status !== 'analyzing') {
+        return mistakes;
+      }
+
+      // Run context analyses
+      const enabledTypes = getEnabledAnalysisTypes(settingsMap);
+      if (enabledTypes.length > 0) {
+        await runContextAnalyses(
+          meetingId,
+          segments,
+          ollamaModel,
+          enabledTypes,
+          (type, done) => {
+            mainWindow.webContents.send(IPC_CHANNELS.PROGRESS, {
+              stage: 'context-analyzing',
+              current: done ? 1 : 0,
+              total: 1,
+              message: done ? `${type} complete` : `Running ${type}...`,
+            });
+          }
+        );
+      }
+
+      return mistakes;
     }
   );
 }

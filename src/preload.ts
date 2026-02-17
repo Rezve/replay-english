@@ -18,6 +18,10 @@ const electronAPI: ElectronAPI = {
     ipcRenderer.invoke(IPC_CHANNELS.SAVE_AUDIO_CHUNK, meetingId, chunkIndex, buffer, prefix),
   convertToWav: (inputPath: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.CONVERT_TO_WAV, inputPath),
+  getAudioChunks: (meetingId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.GET_AUDIO_CHUNKS, meetingId),
+  readAudioChunk: (meetingId: string, filename: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.READ_AUDIO_CHUNK, meetingId, filename),
 
   // Transcription
   transcribeChunk: (wavPath: string) =>
@@ -28,6 +32,10 @@ const electronAPI: ElectronAPI = {
     ipcRenderer.invoke(IPC_CHANNELS.ANALYZE_TRANSCRIPT, meetingId, segments),
   reAnalyzeMeeting: (meetingId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.RE_ANALYZE_MEETING, meetingId),
+  stopAnalysis: (meetingId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.STOP_ANALYSIS, meetingId),
+  startAnalysis: (meetingId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.START_ANALYSIS, meetingId),
 
   // Meetings
   createMeeting: (data: CreateMeetingInput) =>

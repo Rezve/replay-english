@@ -14,7 +14,7 @@ export const meetings = sqliteTable('meetings', {
   startedAt: integer('started_at').notNull(),
   endedAt: integer('ended_at'),
   durationSeconds: integer('duration_seconds'),
-  status: text('status').notNull().$type<'recording' | 'transcribing' | 'analyzing' | 'completed' | 'failed'>(),
+  status: text('status').notNull().$type<'recording' | 'transcribing' | 'analyzing' | 'transcribed' | 'completed' | 'failed'>(),
   totalSegments: integer('total_segments').notNull().default(0),
   totalMistakes: integer('total_mistakes').notNull().default(0),
   overallScore: real('overall_score'),

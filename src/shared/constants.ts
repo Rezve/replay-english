@@ -42,6 +42,8 @@ export const IPC_CHANNELS = {
   // Audio
   SAVE_AUDIO_CHUNK: 'audio:save-chunk',
   CONVERT_TO_WAV: 'audio:convert-to-wav',
+  GET_AUDIO_CHUNKS: 'audio:get-chunks',
+  READ_AUDIO_CHUNK: 'audio:read-chunk',
 
   // Transcription
   TRANSCRIBE_CHUNK: 'transcription:transcribe-chunk',
@@ -49,6 +51,8 @@ export const IPC_CHANNELS = {
   // Analysis
   ANALYZE_TRANSCRIPT: 'analysis:analyze-transcript',
   RE_ANALYZE_MEETING: 'analysis:re-analyze',
+  STOP_ANALYSIS: 'analysis:stop',
+  START_ANALYSIS: 'analysis:start',
   RUN_CONTEXT_ANALYSES: 'analysis:run-context-analyses',
 
   // Meetings

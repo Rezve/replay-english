@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -10,6 +10,10 @@ import {
   RefreshCw,
   X,
   Sparkles,
+  Play,
+  Pause,
+  Volume2,
+  Square,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import type {
@@ -23,6 +27,7 @@ import type {
   ActionItemsResult,
   VocabularyResult,
   FluencyResult,
+  AudioChunkInfo,
 } from '../../shared/types';
 
 type ReportTab = 'line-by-line' | ContextAnalysisType;
@@ -80,6 +85,16 @@ export function ReportPage() {
   const [runningInsights, setRunningInsights] = useState(false);
   const processingStartedRef = React.useRef(false);
 
+  // Audio player state
+  const [audioChunks, setAudioChunks] = useState<AudioChunkInfo[]>([]);
+  const [audioBlobUrls, setAudioBlobUrls] = useState<string[]>([]);
+  const [currentChunkIdx, setCurrentChunkIdx] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [audioCurrentTime, setAudioCurrentTime] = useState(0);
+  const [audioDuration, setAudioDuration] = useState(0);
+  const [audioExpanded, setAudioExpanded] = useState(false);
+  const audioRef = useRef<HTMLAudioElement>(null);
+
   const handleReAnalyze = async () => {
     if (!meeting || !id) return;
     setReanalyzing(true);
@@ -93,6 +108,38 @@ export function ReportPage() {
     } catch (err: any) {
       console.error('Re-analysis failed:', err);
       alert(`Re-analysis failed: ${err?.message || 'Unknown error'}`);
+      const data = await api.getMeeting(id);
+      setMeeting(data);
+    } finally {
+      setReanalyzing(false);
+    }
+  };
+
+  const handleStopAnalysis = async () => {
+    if (!id) return;
+    try {
+      await api.stopAnalysis(id);
+      const data = await api.getMeeting(id);
+      setMeeting(data);
+      setProgress(null);
+    } catch (err: any) {
+      console.error('Failed to stop analysis:', err);
+    }
+  };
+
+  const handleStartAnalysis = async () => {
+    if (!id) return;
+    setReanalyzing(true);
+    setSelectedMistake(null);
+    setMistakeIndex(0);
+    setMeeting(prev => prev ? { ...prev, mistakes: [], totalMistakes: 0, overallScore: null, status: 'analyzing' } : prev);
+    try {
+      await api.startAnalysis(id);
+      const data = await api.getMeeting(id);
+      setMeeting(data);
+    } catch (err: any) {
+      console.error('Analysis failed:', err);
+      alert(`Analysis failed: ${err?.message || 'Unknown error'}`);
       const data = await api.getMeeting(id);
       setMeeting(data);
     } finally {
@@ -114,6 +161,114 @@ export function ReportPage() {
       setRunningInsights(false);
     }
   };
+
+  // Load audio chunks when meeting is available
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+
+    const loadAudio = async () => {
+      const chunks = await api.getAudioChunks(id);
+      if (cancelled || chunks.length === 0) return;
+      setAudioChunks(chunks);
+
+      // Load all chunks as blob URLs
+      const urls: string[] = [];
+      for (const chunk of chunks) {
+        const buffer = await api.readAudioChunk(id, chunk.filename);
+        if (cancelled) {
+          urls.forEach(u => URL.revokeObjectURL(u));
+          return;
+        }
+        if (buffer) {
+          const blob = new Blob([buffer], { type: 'audio/webm' });
+          urls.push(URL.createObjectURL(blob));
+        }
+      }
+      setAudioBlobUrls(urls);
+    };
+
+    loadAudio();
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  // Revoke blob URLs on unmount
+  useEffect(() => {
+    return () => {
+      audioBlobUrls.forEach(u => URL.revokeObjectURL(u));
+    };
+  }, [audioBlobUrls]);
+
+  // Audio playback handlers
+  const handlePlayPause = useCallback(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (isPlaying) {
+      audio.pause();
+    } else {
+      audio.play();
+    }
+  }, [isPlaying]);
+
+  const handleAudioTimeUpdate = useCallback(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    setAudioCurrentTime(audio.currentTime);
+  }, []);
+
+  const handleAudioLoadedMetadata = useCallback(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    setAudioDuration(audio.duration);
+  }, []);
+
+  const handleAudioEnded = useCallback(() => {
+    // Auto-advance to next chunk
+    if (currentChunkIdx < audioBlobUrls.length - 1) {
+      setCurrentChunkIdx(prev => prev + 1);
+      setTimeout(() => audioRef.current?.play(), 50);
+    } else {
+      setIsPlaying(false);
+    }
+  }, [currentChunkIdx, audioBlobUrls.length]);
+
+  const handleSeek = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const audio = audioRef.current;
+    if (!audio || !audioDuration) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const ratio = (e.clientX - rect.left) / rect.width;
+    audio.currentTime = ratio * audioDuration;
+  }, [audioDuration]);
+
+  const handlePlayFromTime = useCallback((timeSeconds: number) => {
+    if (audioBlobUrls.length === 0) return;
+    const chunkDuration = 300; // 5-minute chunks
+    const chunkIdx = Math.min(Math.floor(timeSeconds / chunkDuration), audioBlobUrls.length - 1);
+    const offset = timeSeconds - chunkIdx * chunkDuration;
+
+    setAudioExpanded(true);
+
+    if (chunkIdx === currentChunkIdx) {
+      // Same chunk — just seek and play
+      const audio = audioRef.current;
+      if (audio) {
+        audio.currentTime = offset;
+        audio.play();
+      }
+    } else {
+      // Different chunk — switch, then seek after load
+      setCurrentChunkIdx(chunkIdx);
+      setTimeout(() => {
+        const audio = audioRef.current;
+        if (audio) {
+          audio.currentTime = offset;
+          audio.play();
+        }
+      }, 100);
+    }
+  }, [audioBlobUrls.length, currentChunkIdx]);
 
   useEffect(() => {
     if (!id) return;
@@ -299,6 +454,16 @@ export function ReportPage() {
                 </div>
               </>
             )}
+            {meeting.status === 'transcribed' && meeting.segments.length > 0 && (
+              <button
+                onClick={handleStartAnalysis}
+                disabled={reanalyzing}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors disabled:opacity-50"
+              >
+                <Play size={14} />
+                Start Analysis
+              </button>
+            )}
             {(meeting.status === 'completed' || meeting.status === 'failed') && meeting.segments.length > 0 && (
               <div className="flex items-center gap-2">
                 <button
@@ -338,11 +503,89 @@ export function ReportPage() {
         )}
       </div>
 
+      {/* Audio player */}
+      {audioBlobUrls.length > 0 && (
+        <div className="flex-shrink-0 mb-4">
+          <button
+            onClick={() => setAudioExpanded(prev => !prev)}
+            className="flex items-center gap-2 text-sm text-slate-400 hover:text-white transition-colors mb-2"
+          >
+            <Volume2 size={16} />
+            <span>Recording ({audioChunks.length} chunk{audioChunks.length !== 1 ? 's' : ''})</span>
+            <ChevronRight size={14} className={`transition-transform ${audioExpanded ? 'rotate-90' : ''}`} />
+          </button>
+          {audioExpanded && (
+            <div className="bg-slate-800 rounded-lg p-3">
+              <audio
+                ref={audioRef}
+                src={audioBlobUrls[currentChunkIdx]}
+                onTimeUpdate={handleAudioTimeUpdate}
+                onLoadedMetadata={handleAudioLoadedMetadata}
+                onEnded={handleAudioEnded}
+                onPlay={() => setIsPlaying(true)}
+                onPause={() => setIsPlaying(false)}
+              />
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={handlePlayPause}
+                  className="p-1.5 rounded-full bg-blue-500 hover:bg-blue-400 text-white transition-colors"
+                >
+                  {isPlaying ? <Pause size={16} /> : <Play size={16} />}
+                </button>
+                <span className="text-xs text-slate-400 font-mono w-10">{formatTime(audioCurrentTime)}</span>
+                <div
+                  className="flex-1 h-1.5 bg-slate-700 rounded-full cursor-pointer relative"
+                  onClick={handleSeek}
+                >
+                  <div
+                    className="h-full bg-blue-500 rounded-full"
+                    style={{ width: audioDuration ? `${(audioCurrentTime / audioDuration) * 100}%` : '0%' }}
+                  />
+                </div>
+                <span className="text-xs text-slate-400 font-mono w-10">{formatTime(audioDuration)}</span>
+                {audioBlobUrls.length > 1 && (
+                  <span className="text-xs text-slate-500">
+                    Part {currentChunkIdx + 1}/{audioBlobUrls.length}
+                  </span>
+                )}
+              </div>
+              {audioBlobUrls.length > 1 && (
+                <div className="flex gap-1 mt-2">
+                  {audioBlobUrls.map((_, i) => (
+                    <button
+                      key={i}
+                      onClick={() => {
+                        setCurrentChunkIdx(i);
+                        setAudioCurrentTime(0);
+                        setTimeout(() => {
+                          const audio = audioRef.current;
+                          if (audio) {
+                            audio.currentTime = 0;
+                            if (isPlaying) audio.play();
+                          }
+                        }, 50);
+                      }}
+                      className={`px-2 py-0.5 text-xs rounded transition-colors ${
+                        i === currentChunkIdx
+                          ? 'bg-blue-500 text-white'
+                          : 'bg-slate-700 text-slate-400 hover:bg-slate-600'
+                      }`}
+                    >
+                      {i + 1}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Processing indicator */}
       {(isProcessing || isRunningContext) && (
         <div className="flex-shrink-0 mb-4 bg-blue-500/10 border border-blue-500/20 rounded-lg p-4 flex items-center gap-3">
           <Loader2 size={20} className="text-blue-400 animate-spin" />
-          <div>
+          <div className="flex-1">
             <p className="text-blue-300 font-medium">
               {meeting.status === 'transcribing' ? 'Transcribing...'
                 : isRunningContext ? 'Running additional insights...'
@@ -357,6 +600,36 @@ export function ReportPage() {
               </p>
             )}
           </div>
+          {(meeting.status === 'analyzing' || isRunningContext) && (
+            <button
+              onClick={handleStopAnalysis}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-red-500/20 hover:bg-red-500/30 text-red-400 hover:text-red-300 border border-red-500/30 rounded-lg transition-colors flex-shrink-0"
+            >
+              <Square size={12} fill="currentColor" />
+              Stop
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Transcribed but not analyzed banner */}
+      {meeting.status === 'transcribed' && !isProcessing && (
+        <div className="flex-shrink-0 mb-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-4 flex items-center gap-3">
+          <AlertTriangle size={20} className="text-yellow-400 flex-shrink-0" />
+          <div className="flex-1">
+            <p className="text-yellow-300 font-medium">Analysis incomplete</p>
+            <p className="text-yellow-400/60 text-sm">
+              Transcription is complete but grammar analysis was stopped. You can start it anytime.
+            </p>
+          </div>
+          <button
+            onClick={handleStartAnalysis}
+            disabled={reanalyzing}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors disabled:opacity-50 flex-shrink-0"
+          >
+            <Play size={14} />
+            Start Analysis
+          </button>
         </div>
       )}
 
@@ -408,8 +681,22 @@ export function ReportPage() {
                         }
                       }}
                     >
-                      <span className="text-slate-500 text-xs font-mono w-12 flex-shrink-0 pt-0.5">
-                        {formatTime(segment.startTime)}
+                      <span className="flex items-center gap-1 flex-shrink-0 pt-0.5">
+                        {audioBlobUrls.length > 0 && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handlePlayFromTime(segment.startTime);
+                            }}
+                            className="text-slate-600 hover:text-blue-400 transition-colors"
+                            title="Play from here"
+                          >
+                            <Play size={10} fill="currentColor" />
+                          </button>
+                        )}
+                        <span className="text-slate-500 text-xs font-mono w-12">
+                          {formatTime(segment.startTime)}
+                        </span>
                       </span>
                       <p className={`text-sm leading-relaxed ${hasMistakes ? 'text-white' : 'text-slate-300'}`}>
                         {hasMistakes ? (

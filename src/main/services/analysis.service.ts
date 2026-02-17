@@ -15,6 +15,21 @@ import type { TranscriptSegment, Mistake, MeetingAnalysis, ContextAnalysisType }
 
 const BATCH_SIZE = 4; // smaller batches for slower local LLMs
 
+// Cancellation tracking per meeting
+const cancelledMeetings = new Set<string>();
+
+export function cancelAnalysis(meetingId: string) {
+  cancelledMeetings.add(meetingId);
+}
+
+export function isAnalysisCancelled(meetingId: string): boolean {
+  return cancelledMeetings.has(meetingId);
+}
+
+function clearCancellation(meetingId: string) {
+  cancelledMeetings.delete(meetingId);
+}
+
 export async function analyzeTranscript(
   meetingId: string,
   segments: TranscriptSegment[],
@@ -39,7 +54,15 @@ export async function analyzeTranscript(
     batches.push(batch);
   }
 
+  clearCancellation(meetingId);
+
   for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
+    // Check for cancellation before each batch
+    if (isAnalysisCancelled(meetingId)) {
+      clearCancellation(meetingId);
+      return allMistakes;
+    }
+
     if (onProgress) onProgress(batchIdx + 1, batches.length);
 
     let results: AnalysisResult[];
@@ -48,6 +71,12 @@ export async function analyzeTranscript(
     } catch (err) {
       console.error(`Analysis batch ${batchIdx + 1} failed:`, err);
       continue;
+    }
+
+    // Check cancellation after the batch completes (LLM call may be long)
+    if (isAnalysisCancelled(meetingId)) {
+      clearCancellation(meetingId);
+      return allMistakes;
     }
 
     // Map results to mistakes
@@ -166,6 +195,11 @@ export async function runContextAnalyses(
 
   // Run each analysis type sequentially
   for (const type of enabledTypes) {
+    if (isAnalysisCancelled(meetingId)) {
+      clearCancellation(meetingId);
+      return results;
+    }
+
     if (onProgress) onProgress(type, false);
 
     try {
