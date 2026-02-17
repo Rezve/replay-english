@@ -105,24 +105,12 @@ export function RecordingPage() {
       // Optionally capture desktop audio and mix it in
       if (captureDesktop) {
         try {
-          const desktopStream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-              // @ts-expect-error -- Electron-specific constraint for system audio
-              mandatory: {
-                chromeMediaSource: 'desktop',
-              },
-            },
-            video: {
-              // @ts-expect-error -- Electron-specific constraint
-              mandatory: {
-                chromeMediaSource: 'desktop',
-                maxWidth: 1,
-                maxHeight: 1,
-              },
-            },
+          const desktopStream = await navigator.mediaDevices.getDisplayMedia({
+            audio: true,
+            video: true, // required by Chromium to obtain audio
           });
 
-          // Remove video tracks
+          // Remove video tracks — we only need the audio
           desktopStream.getVideoTracks().forEach(track => track.stop());
           desktopStreamRef.current = desktopStream;
 

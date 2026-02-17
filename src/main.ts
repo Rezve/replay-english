@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, desktopCapturer, session } from 'electron';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
 import { registerAllIpcHandlers } from './main/ipc';
@@ -43,6 +43,16 @@ const createWindow = () => {
 
 app.on('ready', () => {
   runMigrations();
+
+  // Allow renderer to capture desktop audio via getDisplayMedia().
+  // Automatically selects the entire screen so no picker dialog appears.
+  session.defaultSession.setDisplayMediaRequestHandler((_request, callback) => {
+    desktopCapturer.getSources({ types: ['screen'] }).then((sources) => {
+      // Provide the first screen source; pass audio: 'loopback' to capture system audio
+      callback({ video: sources[0], audio: 'loopback' });
+    });
+  });
+
   createWindow();
 });
 
