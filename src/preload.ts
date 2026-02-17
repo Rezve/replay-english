@@ -66,10 +66,14 @@ const electronAPI: ElectronAPI = {
   // Prerequisites
   checkPrerequisites: () =>
     ipcRenderer.invoke(IPC_CHANNELS.CHECK_PREREQUISITES),
+  checkModelStatus: (whisperModel: string, ollamaModel: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.CHECK_MODEL_STATUS, whisperModel, ollamaModel),
   downloadWhisperModel: (modelName?: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.DOWNLOAD_WHISPER_MODEL, modelName),
   downloadWhisperBinary: (variant: WhisperBinaryVariant) =>
     ipcRenderer.invoke(IPC_CHANNELS.DOWNLOAD_WHISPER_BINARY, variant),
+  pullOllamaModel: (modelName: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.PULL_OLLAMA_MODEL, modelName),
   checkGpu: () =>
     ipcRenderer.invoke(IPC_CHANNELS.CHECK_GPU),
 

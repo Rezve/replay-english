@@ -1,6 +1,6 @@
 import { isWhisperAvailable, isModelAvailable as isWhisperModelAvailable } from './whisper.service';
 import { isOllamaRunning, isModelAvailable as isOllamaModelAvailable } from './ollama.service';
-import type { PrerequisiteStatus } from '../../shared/types';
+import type { PrerequisiteStatus, ModelCheckResult } from '../../shared/types';
 
 function isFFmpegAvailable(): boolean {
   try {
@@ -13,18 +13,37 @@ function isFFmpegAvailable(): boolean {
   }
 }
 
-export async function checkPrerequisites(): Promise<PrerequisiteStatus> {
+export async function checkPrerequisites(
+  whisperModel: string,
+  ollamaModel: string,
+): Promise<PrerequisiteStatus> {
   const ollamaRunning = await isOllamaRunning();
-  let ollamaModel = false;
+  let ollamaModelAvailable = false;
   if (ollamaRunning) {
-    ollamaModel = await isOllamaModelAvailable('qwen2.5:7b');
+    ollamaModelAvailable = await isOllamaModelAvailable(ollamaModel);
   }
 
   return {
     whisperBinary: isWhisperAvailable(),
-    whisperModel: isWhisperModelAvailable(),
+    whisperModel: isWhisperModelAvailable(whisperModel),
     ollamaRunning,
-    ollamaModel,
+    ollamaModel: ollamaModelAvailable,
     ffmpeg: isFFmpegAvailable(),
+  };
+}
+
+export async function checkModelStatus(
+  whisperModel: string,
+  ollamaModel: string,
+): Promise<ModelCheckResult> {
+  const ollamaRunning = await isOllamaRunning();
+  let ollamaModelAvailable = false;
+  if (ollamaRunning) {
+    ollamaModelAvailable = await isOllamaModelAvailable(ollamaModel);
+  }
+
+  return {
+    whisperModel: { name: whisperModel, available: isWhisperModelAvailable(whisperModel) },
+    ollamaModel: { name: ollamaModel, available: ollamaModelAvailable, ollamaRunning },
   };
 }

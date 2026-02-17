@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { CheckCircle, XCircle, Loader2, RefreshCw, Download, Cpu, Zap } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
-import type { PrerequisiteStatus, DownloadProgressEvent, GpuInfo, WhisperBinaryVariant } from '../../shared/types';
+import type { PrerequisiteStatus, DownloadProgressEvent, GpuInfo, WhisperBinaryVariant, AppSettings } from '../../shared/types';
 
 type CheckStatus = 'checking' | 'ok' | 'error';
 
@@ -15,11 +15,12 @@ interface PrerequisiteItem {
 
 export function SetupPage() {
   const navigate = useNavigate();
+  const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
   const [items, setItems] = useState<PrerequisiteItem[]>([
     { name: 'Whisper Binary', description: 'Speech-to-text engine', status: 'checking' },
-    { name: 'Whisper Model', description: 'English language model (base.en)', status: 'checking' },
+    { name: 'Whisper Model', description: 'English language model', status: 'checking' },
     { name: 'Ollama', description: 'Local LLM runtime', status: 'checking' },
-    { name: 'Ollama Model', description: 'Grammar analysis model (qwen2.5:7b)', status: 'checking' },
+    { name: 'Ollama Model', description: 'Grammar analysis model', status: 'checking' },
     { name: 'FFmpeg', description: 'Audio conversion tool', status: 'checking' },
   ]);
   const [checking, setChecking] = useState(false);
@@ -33,7 +34,10 @@ export function SetupPage() {
     setItems(prev => prev.map(i => ({ ...i, status: 'checking' as CheckStatus })));
 
     try {
+      const settings = await api.getSettings();
+      setAppSettings(settings);
       const status: PrerequisiteStatus = await api.checkPrerequisites();
+      const whisperLabel = settings.whisperModel.replace('ggml-', '').replace('.bin', '');
       setItems([
         {
           name: 'Whisper Binary',
@@ -43,9 +47,9 @@ export function SetupPage() {
         },
         {
           name: 'Whisper Model',
-          description: 'English language model (base.en)',
+          description: `Language model (${whisperLabel})`,
           status: status.whisperModel ? 'ok' : 'error',
-          hint: status.whisperModel ? undefined : 'Model will be downloaded on first use (~148MB)',
+          hint: status.whisperModel ? undefined : `Model ${settings.whisperModel} not downloaded`,
         },
         {
           name: 'Ollama',
@@ -55,9 +59,9 @@ export function SetupPage() {
         },
         {
           name: 'Ollama Model',
-          description: 'Grammar analysis model (qwen2.5:7b)',
+          description: `Grammar analysis model (${settings.ollamaModel})`,
           status: status.ollamaModel ? 'ok' : 'error',
-          hint: status.ollamaModel ? undefined : 'Run: ollama pull qwen2.5:7b',
+          hint: status.ollamaModel ? undefined : `Run: ollama pull ${settings.ollamaModel}`,
         },
         {
           name: 'FFmpeg',
@@ -104,7 +108,7 @@ export function SetupPage() {
     setDownloading(true);
     setDownloadProgress(null);
     try {
-      await api.downloadWhisperModel();
+      await api.downloadWhisperModel(appSettings?.whisperModel);
       // Re-check prerequisites after download
       await runChecks();
     } catch (err) {

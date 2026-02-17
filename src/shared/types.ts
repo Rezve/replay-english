@@ -131,6 +131,11 @@ export interface GpuInfo {
 
 export type WhisperBinaryVariant = 'cpu' | 'cuda';
 
+export interface ModelCheckResult {
+  whisperModel: { name: string; available: boolean };
+  ollamaModel: { name: string; available: boolean; ollamaRunning: boolean };
+}
+
 // Electron API exposed via preload
 export interface ElectronAPI {
   // Audio
@@ -168,8 +173,10 @@ export interface ElectronAPI {
 
   // Prerequisites
   checkPrerequisites(): Promise<PrerequisiteStatus>;
+  checkModelStatus(whisperModel: string, ollamaModel: string): Promise<ModelCheckResult>;
   downloadWhisperModel(modelName?: string): Promise<void>;
   downloadWhisperBinary(variant: WhisperBinaryVariant): Promise<void>;
+  pullOllamaModel(modelName: string): Promise<void>;
   checkGpu(): Promise<GpuInfo>;
 
   // Events

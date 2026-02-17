@@ -1,19 +1,33 @@
 import { ipcMain, BrowserWindow } from 'electron';
 import { eq } from 'drizzle-orm';
-import { IPC_CHANNELS } from '../../shared/constants';
+import { IPC_CHANNELS, DEFAULT_SETTINGS } from '../../shared/constants';
 import { getDb } from '../db/connection';
 import * as dbSchema from '../db/schema';
 import { analyzeTranscript } from '../services/analysis.service';
 import type { TranscriptSegment, AnalysisBatchEvent } from '../../shared/types';
 
+async function getSettingsModels(): Promise<{ whisperModel: string; ollamaModel: string }> {
+  const db = getDb();
+  const rows = await db.select().from(dbSchema.settings).all();
+  const map: Record<string, string> = {};
+  for (const row of rows) {
+    map[row.key] = row.value;
+  }
+  return {
+    whisperModel: map['whisperModel'] || DEFAULT_SETTINGS.whisperModel,
+    ollamaModel: map['ollamaModel'] || DEFAULT_SETTINGS.ollamaModel,
+  };
+}
+
 export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
   ipcMain.handle(
     IPC_CHANNELS.ANALYZE_TRANSCRIPT,
     async (_event, meetingId: string, segments: TranscriptSegment[]) => {
+      const { ollamaModel } = await getSettingsModels();
       return await analyzeTranscript(
         meetingId,
         segments,
-        'qwen2.5:7b',
+        ollamaModel,
         (current, total) => {
           mainWindow.webContents.send(IPC_CHANNELS.PROGRESS, {
             stage: 'analyzing',
@@ -42,6 +56,7 @@ export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
       const { getDb } = await import('../db/connection');
       const pipelineSchema = await import('../db/schema');
 
+      const { whisperModel, ollamaModel: pipelineOllamaModel } = await getSettingsModels();
       const db = getDb();
       const allSegments: TranscriptSegment[] = [];
       let globalSegmentIndex = 0;
@@ -70,7 +85,7 @@ export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
 
         const wavPath = await convertToWav(paths[i]);
         const chunkOffset = i * 300;
-        const segments = await transcribeWav(wavPath);
+        const segments = await transcribeWav(wavPath, whisperModel);
 
         for (const seg of segments) {
           const segment: TranscriptSegment = {
@@ -97,7 +112,7 @@ export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
       const mistakes = await analyzeTranscript(
         meetingId,
         allSegments,
-        'qwen2.5:7b',
+        pipelineOllamaModel,
         (current, total) => {
           mainWindow.webContents.send(IPC_CHANNELS.PROGRESS, {
             stage: 'analyzing',
@@ -141,10 +156,11 @@ export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
         .where(eq(dbSchema.meetings.id, meetingId));
 
       // Re-run analysis
+      const { ollamaModel: reAnalyzeModel } = await getSettingsModels();
       const mistakes = await analyzeTranscript(
         meetingId,
         segments,
-        'qwen2.5:7b',
+        reAnalyzeModel,
         (current, total) => {
           mainWindow.webContents.send(IPC_CHANNELS.PROGRESS, {
             stage: 'analyzing',

@@ -2,12 +2,16 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Save, Shield } from 'lucide-react';
 import { api } from '../lib/api';
+import { SystemCheckModal } from '../components/SystemCheckModal';
 import type { AppSettings } from '../../shared/types';
 
 export function SettingsPage() {
   const navigate = useNavigate();
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [saved, setSaved] = useState(false);
+  const [showModelCheck, setShowModelCheck] = useState(false);
+  const [pendingWhisperModel, setPendingWhisperModel] = useState('');
+  const [pendingOllamaModel, setPendingOllamaModel] = useState('');
 
   useEffect(() => {
     api.getSettings().then(setSettings).catch(console.error);
@@ -18,6 +22,22 @@ export function SettingsPage() {
     await api.updateSettings(settings);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
+  };
+
+  const handleWhisperModelChange = (value: string) => {
+    if (!settings) return;
+    setSettings({ ...settings, whisperModel: value });
+    setPendingWhisperModel(value);
+    setPendingOllamaModel(settings.ollamaModel);
+    setShowModelCheck(true);
+  };
+
+  const handleOllamaModelChange = (value: string) => {
+    if (!settings) return;
+    setSettings({ ...settings, ollamaModel: value });
+    setPendingWhisperModel(settings.whisperModel);
+    setPendingOllamaModel(value);
+    setShowModelCheck(true);
   };
 
   if (!settings) {
@@ -47,7 +67,7 @@ export function SettingsPage() {
           <h3 className="text-white font-medium mb-2">Whisper Model</h3>
           <select
             value={settings.whisperModel}
-            onChange={e => setSettings({ ...settings, whisperModel: e.target.value })}
+            onChange={e => handleWhisperModelChange(e.target.value)}
             className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm"
           >
             <option value="ggml-base.en.bin">base.en (148 MB) — Fast, good accuracy</option>
@@ -61,7 +81,7 @@ export function SettingsPage() {
           <h3 className="text-white font-medium mb-2">Ollama Model</h3>
           <select
             value={settings.ollamaModel}
-            onChange={e => setSettings({ ...settings, ollamaModel: e.target.value })}
+            onChange={e => handleOllamaModelChange(e.target.value)}
             className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm"
           >
             <option value="qwen2.5:7b">qwen2.5:7b — Recommended (7B params)</option>
@@ -98,6 +118,14 @@ export function SettingsPage() {
           </button>
         </div>
       </div>
+
+      {showModelCheck && (
+        <SystemCheckModal
+          whisperModel={pendingWhisperModel}
+          ollamaModel={pendingOllamaModel}
+          onClose={() => setShowModelCheck(false)}
+        />
+      )}
     </div>
   );
 }
