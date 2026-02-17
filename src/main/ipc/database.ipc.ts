@@ -5,6 +5,7 @@ import { getDb } from '../db/connection';
 import * as schema from '../db/schema';
 import { IPC_CHANNELS } from '../../shared/constants';
 import { getAnalytics } from '../services/stats.service';
+import { cleanupMeetingAudio } from '../services/audio.service';
 import type {
   CreateMeetingInput,
   MeetingFilters,
@@ -101,6 +102,7 @@ export function registerDatabaseHandlers() {
   ipcMain.handle(IPC_CHANNELS.DELETE_MEETING, async (_event, id: string) => {
     const db = getDb();
     await db.delete(schema.meetings).where(eq(schema.meetings.id, id));
+    cleanupMeetingAudio(id);
   });
 
   ipcMain.handle(IPC_CHANNELS.UPDATE_MEETING_STATUS, async (_event, id: string, status: MeetingStatus) => {

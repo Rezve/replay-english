@@ -4,6 +4,7 @@ import started from 'electron-squirrel-startup';
 import { registerAllIpcHandlers } from './main/ipc';
 import { runMigrations } from './main/db/migrate';
 import { closeDb } from './main/db/connection';
+import { migrateAudioStorage } from './main/services/audio.service';
 
 if (started) {
   app.quit();
@@ -43,6 +44,7 @@ const createWindow = () => {
 
 app.on('ready', () => {
   runMigrations();
+  migrateAudioStorage();
 
   // Allow renderer to capture desktop audio via getDisplayMedia().
   // Automatically selects the entire screen so no picker dialog appears.

@@ -17,10 +17,22 @@ function getFFmpegPath(): string {
   }
 }
 
-function getTempDir(meetingId: string): string {
-  const dir = path.join(app.getPath('userData'), 'temp', meetingId);
+function getRecordingsDir(meetingId: string): string {
+  const dir = path.join(app.getPath('userData'), 'recordings', meetingId);
   fs.mkdirSync(dir, { recursive: true });
   return dir;
+}
+
+/**
+ * Resolve the audio directory for a meeting — checks both
+ * `recordings/` (new) and `temp/` (legacy) locations.
+ */
+function resolveAudioDir(meetingId: string): string | null {
+  const recordings = path.join(app.getPath('userData'), 'recordings', meetingId);
+  if (fs.existsSync(recordings)) return recordings;
+  const temp = path.join(app.getPath('userData'), 'temp', meetingId);
+  if (fs.existsSync(temp)) return temp;
+  return null;
 }
 
 export async function saveAudioChunk(
@@ -29,7 +41,7 @@ export async function saveAudioChunk(
   buffer: ArrayBuffer,
   prefix?: string
 ): Promise<string> {
-  const dir = getTempDir(meetingId);
+  const dir = getRecordingsDir(meetingId);
   const fileName = prefix ? `${prefix}_chunk_${chunkIndex}.webm` : `chunk_${chunkIndex}.webm`;
   const filePath = path.join(dir, fileName);
   fs.writeFileSync(filePath, Buffer.from(buffer));
@@ -52,16 +64,19 @@ export async function convertToWav(inputPath: string): Promise<string> {
   return outputPath;
 }
 
-export function cleanupMeetingTemp(meetingId: string): void {
-  const dir = path.join(app.getPath('userData'), 'temp', meetingId);
-  if (fs.existsSync(dir)) {
-    fs.rmSync(dir, { recursive: true, force: true });
+export function cleanupMeetingAudio(meetingId: string): void {
+  // Clean both possible locations
+  for (const folder of ['recordings', 'temp']) {
+    const dir = path.join(app.getPath('userData'), folder, meetingId);
+    if (fs.existsSync(dir)) {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   }
 }
 
 export function getChunkPaths(meetingId: string, prefix?: string): string[] {
-  const dir = path.join(app.getPath('userData'), 'temp', meetingId);
-  if (!fs.existsSync(dir)) return [];
+  const dir = resolveAudioDir(meetingId);
+  if (!dir) return [];
 
   return fs.readdirSync(dir)
     .filter(f => {
@@ -73,4 +88,66 @@ export function getChunkPaths(meetingId: string, prefix?: string): string[] {
     })
     .sort((a, b) => a.localeCompare(b))
     .map(f => path.join(dir, f));
+}
+
+export interface AudioChunkInfo {
+  filename: string;
+  size: number;
+}
+
+export function getAudioChunks(meetingId: string): AudioChunkInfo[] {
+  const dir = resolveAudioDir(meetingId);
+  if (!dir) return [];
+
+  return fs.readdirSync(dir)
+    .filter(f => f.endsWith('.webm') && !f.startsWith('mic_'))
+    .sort((a, b) => a.localeCompare(b))
+    .map(f => ({
+      filename: f,
+      size: fs.statSync(path.join(dir, f)).size,
+    }));
+}
+
+export function readAudioChunk(meetingId: string, filename: string): Buffer | null {
+  const dir = resolveAudioDir(meetingId);
+  if (!dir) return null;
+
+  // Prevent path traversal
+  const safe = path.basename(filename);
+  const filePath = path.join(dir, safe);
+  if (!fs.existsSync(filePath)) return null;
+
+  return fs.readFileSync(filePath);
+}
+
+/**
+ * Migrate audio files from legacy `temp/` to `recordings/`.
+ * Called once on app startup.
+ */
+export function migrateAudioStorage(): void {
+  const tempBase = path.join(app.getPath('userData'), 'temp');
+  const recordingsBase = path.join(app.getPath('userData'), 'recordings');
+
+  if (!fs.existsSync(tempBase)) return;
+
+  const entries = fs.readdirSync(tempBase, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+
+    const srcDir = path.join(tempBase, entry.name);
+    const destDir = path.join(recordingsBase, entry.name);
+
+    // Skip if already migrated
+    if (fs.existsSync(destDir)) continue;
+
+    // Check if this directory has audio files
+    const files = fs.readdirSync(srcDir);
+    const hasAudio = files.some(f => f.endsWith('.webm'));
+    if (!hasAudio) continue;
+
+    // Move the directory
+    fs.mkdirSync(recordingsBase, { recursive: true });
+    fs.renameSync(srcDir, destDir);
+    console.log(`Migrated audio: temp/${entry.name} → recordings/${entry.name}`);
+  }
 }
