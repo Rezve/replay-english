@@ -51,6 +51,14 @@ export const mistakes = sqliteTable('mistakes', {
   severity: text('severity').notNull().$type<'minor' | 'moderate' | 'major'>(),
 });
 
+export const meetingAnalyses = sqliteTable('meeting_analyses', {
+  id: text('id').primaryKey(),
+  meetingId: text('meeting_id').notNull().references(() => meetings.id, { onDelete: 'cascade' }),
+  type: text('type').notNull().$type<'grammar_full' | 'summary' | 'action_items' | 'vocabulary' | 'fluency'>(),
+  content: text('content').notNull(), // JSON string, shape varies by type
+  createdAt: integer('created_at').notNull(),
+});
+
 export const settings = sqliteTable('settings', {
   key: text('key').primaryKey(),
   value: text('value').notNull(),

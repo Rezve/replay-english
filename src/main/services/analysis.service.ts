@@ -1,16 +1,24 @@
 import { v4 as uuidv4 } from 'uuid';
-import { eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import { getDb } from '../db/connection';
 import * as schema from '../db/schema';
-import { analyzeSegments, type AnalysisResult } from './ollama.service';
-import type { TranscriptSegment, Mistake } from '../../shared/types';
+import {
+  analyzeSegments,
+  analyzeGrammarFull,
+  summarizeTranscript,
+  extractActionItems,
+  suggestVocabulary,
+  analyzeFluency,
+  type AnalysisResult,
+} from './ollama.service';
+import type { TranscriptSegment, Mistake, MeetingAnalysis, ContextAnalysisType } from '../../shared/types';
 
 const BATCH_SIZE = 4; // smaller batches for slower local LLMs
 
 export async function analyzeTranscript(
   meetingId: string,
   segments: TranscriptSegment[],
-  modelName: string = 'qwen2.5:7b',
+  modelName = 'qwen2.5:7b',
   onProgress?: (current: number, total: number) => void,
   onBatchComplete?: (mistakes: Mistake[], batchIndex: number, totalBatches: number, done: boolean) => void
 ): Promise<Mistake[]> {
@@ -123,4 +131,63 @@ export async function analyzeTranscript(
     .where(eq(schema.meetings.id, meetingId));
 
   return allMistakes;
+}
+
+const contextAnalysisFns: Record<ContextAnalysisType, (transcript: string, model: string) => Promise<unknown>> = {
+  grammar_full: analyzeGrammarFull,
+  summary: summarizeTranscript,
+  action_items: extractActionItems,
+  vocabulary: suggestVocabulary,
+  fluency: analyzeFluency,
+};
+
+export async function runContextAnalyses(
+  meetingId: string,
+  segments: TranscriptSegment[],
+  modelName: string,
+  enabledTypes: ContextAnalysisType[],
+  onProgress?: (type: ContextAnalysisType, done: boolean) => void
+): Promise<MeetingAnalysis[]> {
+  if (enabledTypes.length === 0 || segments.length === 0) return [];
+
+  const db = getDb();
+  const fullTranscript = segments.map(s => s.text).join('\n');
+  const results: MeetingAnalysis[] = [];
+
+  // Delete existing analyses for these types (for re-runs)
+  for (const type of enabledTypes) {
+    await db.delete(schema.meetingAnalyses).where(
+      and(
+        eq(schema.meetingAnalyses.meetingId, meetingId),
+        eq(schema.meetingAnalyses.type, type)
+      )
+    );
+  }
+
+  // Run each analysis type sequentially
+  for (const type of enabledTypes) {
+    if (onProgress) onProgress(type, false);
+
+    try {
+      const fn = contextAnalysisFns[type];
+      const content = await fn(fullTranscript, modelName);
+
+      const analysis: MeetingAnalysis = {
+        id: uuidv4(),
+        meetingId,
+        type,
+        content: JSON.stringify(content),
+        createdAt: Date.now(),
+      };
+
+      await db.insert(schema.meetingAnalyses).values(analysis);
+      results.push(analysis);
+    } catch (error) {
+      console.error(`Context analysis '${type}' failed:`, error);
+    }
+
+    if (onProgress) onProgress(type, true);
+  }
+
+  return results;
 }

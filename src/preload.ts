@@ -63,6 +63,10 @@ const electronAPI: ElectronAPI = {
   processMeeting: (meetingId: string, chunkPaths: string[]) =>
     ipcRenderer.invoke('pipeline:process-meeting', meetingId, chunkPaths),
 
+  // Context analyses
+  runContextAnalyses: (meetingId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.RUN_CONTEXT_ANALYSES, meetingId),
+
   // Prerequisites
   checkPrerequisites: () =>
     ipcRenderer.invoke(IPC_CHANNELS.CHECK_PREREQUISITES),

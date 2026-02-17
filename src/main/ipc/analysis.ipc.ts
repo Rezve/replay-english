@@ -3,20 +3,33 @@ import { eq } from 'drizzle-orm';
 import { IPC_CHANNELS, DEFAULT_SETTINGS } from '../../shared/constants';
 import { getDb } from '../db/connection';
 import * as dbSchema from '../db/schema';
-import { analyzeTranscript } from '../services/analysis.service';
-import type { TranscriptSegment, AnalysisBatchEvent } from '../../shared/types';
+import { analyzeTranscript, runContextAnalyses } from '../services/analysis.service';
+import type { TranscriptSegment, AnalysisBatchEvent, ContextAnalysisType } from '../../shared/types';
 
-async function getSettingsModels(): Promise<{ whisperModel: string; ollamaModel: string }> {
+async function getSettingsMap(): Promise<Record<string, string>> {
   const db = getDb();
   const rows = await db.select().from(dbSchema.settings).all();
   const map: Record<string, string> = {};
   for (const row of rows) {
     map[row.key] = row.value;
   }
+  return map;
+}
+
+async function getSettingsModels(): Promise<{ whisperModel: string; ollamaModel: string }> {
+  const map = await getSettingsMap();
   return {
     whisperModel: map['whisperModel'] || DEFAULT_SETTINGS.whisperModel,
     ollamaModel: map['ollamaModel'] || DEFAULT_SETTINGS.ollamaModel,
   };
+}
+
+function getEnabledAnalysisTypes(settingsMap: Record<string, string>): ContextAnalysisType[] {
+  const all: ContextAnalysisType[] = ['grammar_full', 'summary', 'action_items', 'vocabulary', 'fluency'];
+  return all.filter(t => {
+    const key = `analysis${t.split('_').map(w => w[0].toUpperCase() + w.slice(1)).join('')}`;
+    return settingsMap[key] !== 'false';
+  });
 }
 
 export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
@@ -56,7 +69,9 @@ export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
       const { getDb } = await import('../db/connection');
       const pipelineSchema = await import('../db/schema');
 
-      const { whisperModel, ollamaModel: pipelineOllamaModel } = await getSettingsModels();
+      const settingsMap = await getSettingsMap();
+      const whisperModel = settingsMap['whisperModel'] || DEFAULT_SETTINGS.whisperModel;
+      const pipelineOllamaModel = settingsMap['ollamaModel'] || DEFAULT_SETTINGS.ollamaModel;
       const db = getDb();
       const allSegments: TranscriptSegment[] = [];
       let globalSegmentIndex = 0;
@@ -127,6 +142,25 @@ export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
         }
       );
 
+      // Phase 3: Context analyses
+      const enabledTypes = getEnabledAnalysisTypes(settingsMap);
+      if (enabledTypes.length > 0) {
+        await runContextAnalyses(
+          meetingId,
+          allSegments,
+          pipelineOllamaModel,
+          enabledTypes,
+          (type, done) => {
+            mainWindow.webContents.send(IPC_CHANNELS.PROGRESS, {
+              stage: 'context-analyzing',
+              current: done ? 1 : 0,
+              total: 1,
+              message: done ? `${type} complete` : `Running ${type}...`,
+            });
+          }
+        );
+      }
+
       return { segments: allSegments, mistakes };
     }
   );
@@ -156,7 +190,8 @@ export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
         .where(eq(dbSchema.meetings.id, meetingId));
 
       // Re-run analysis
-      const { ollamaModel: reAnalyzeModel } = await getSettingsModels();
+      const settingsMap = await getSettingsMap();
+      const reAnalyzeModel = settingsMap['ollamaModel'] || DEFAULT_SETTINGS.ollamaModel;
       const mistakes = await analyzeTranscript(
         meetingId,
         segments,
@@ -175,7 +210,62 @@ export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
         }
       );
 
+      // Re-run context analyses
+      const enabledTypes = getEnabledAnalysisTypes(settingsMap);
+      if (enabledTypes.length > 0) {
+        await runContextAnalyses(
+          meetingId,
+          segments,
+          reAnalyzeModel,
+          enabledTypes,
+          (type, done) => {
+            mainWindow.webContents.send(IPC_CHANNELS.PROGRESS, {
+              stage: 'context-analyzing',
+              current: done ? 1 : 0,
+              total: 1,
+              message: done ? `${type} complete` : `Running ${type}...`,
+            });
+          }
+        );
+      }
+
       return mistakes;
+    }
+  );
+
+  // Run only context analyses (without re-transcribing or re-running line-by-line)
+  ipcMain.handle(
+    IPC_CHANNELS.RUN_CONTEXT_ANALYSES,
+    async (_event, meetingId: string) => {
+      const db = getDb();
+
+      const segments = await db.select().from(dbSchema.transcriptSegments)
+        .where(eq(dbSchema.transcriptSegments.meetingId, meetingId))
+        .orderBy(dbSchema.transcriptSegments.segmentIndex)
+        .all();
+
+      if (segments.length === 0) {
+        throw new Error('No transcript segments found.');
+      }
+
+      const settingsMap = await getSettingsMap();
+      const ollamaModel = settingsMap['ollamaModel'] || DEFAULT_SETTINGS.ollamaModel;
+      const enabledTypes = getEnabledAnalysisTypes(settingsMap);
+
+      return await runContextAnalyses(
+        meetingId,
+        segments,
+        ollamaModel,
+        enabledTypes,
+        (type, done) => {
+          mainWindow.webContents.send(IPC_CHANNELS.PROGRESS, {
+            stage: 'context-analyzing',
+            current: done ? 1 : 0,
+            total: 1,
+            message: done ? `${type} complete` : `Running ${type}...`,
+          });
+        }
+      );
     }
   );
 }

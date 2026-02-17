@@ -60,11 +60,16 @@ export function registerDatabaseHandlers() {
         .get() || null;
     }
 
+    const analyses = await db.select().from(schema.meetingAnalyses)
+      .where(eq(schema.meetingAnalyses.meetingId, id))
+      .all();
+
     return {
       ...meeting,
       segments,
       mistakes: mistakesWithAlternatives,
       profile,
+      analyses,
     };
   });
 

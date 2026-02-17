@@ -1,4 +1,11 @@
 import { Ollama } from 'ollama';
+import type {
+  GrammarFullResult,
+  SummaryResult,
+  ActionItemsResult,
+  VocabularyResult,
+  FluencyResult,
+} from '../../shared/types';
 
 const ollama = new Ollama({ host: 'http://localhost:11434' });
 
@@ -122,4 +129,158 @@ Respond ONLY with valid JSON in this exact format:
     console.error('Failed to parse Ollama response:', response.message.content);
     return [];
   }
+}
+
+// --- Context analysis functions (operate on full transcript) ---
+
+async function chatJson<T>(systemPrompt: string, userPrompt: string, modelName: string): Promise<T | null> {
+  try {
+    const response = await ollama.chat({
+      model: modelName,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      format: 'json',
+      options: { temperature: 0.3, num_predict: 4096 },
+    });
+    return JSON.parse(response.message.content) as T;
+  } catch (error) {
+    console.error('Context analysis failed:', error);
+    return null;
+  }
+}
+
+export async function analyzeGrammarFull(
+  transcript: string,
+  modelName = 'qwen2.5:7b'
+): Promise<GrammarFullResult> {
+  const systemPrompt = `You are an expert English language teacher analyzing a complete transcribed meeting from a non-native English speaker.
+
+Analyze the FULL transcript as a whole, considering context across sentences. Focus on grammar mistakes, vocabulary errors, and unnatural phrasing that would be noticeable in a professional setting.
+
+This is TRANSCRIBED SPEECH — do NOT flag missing punctuation, filler words, hesitations, or accent artifacts.
+Only flag genuine language errors in the words spoken.`;
+
+  const userPrompt = `Analyze this full meeting transcript for English language mistakes. Consider the full context when evaluating each issue.
+
+Transcript:
+${transcript}
+
+Respond with JSON:
+{
+  "issues": [
+    {
+      "original": "the problematic phrase",
+      "corrected": "the correct version",
+      "explanation": "why it was wrong",
+      "severity": "minor|moderate|major"
+    }
+  ]
+}
+
+If no issues found, return {"issues": []}.`;
+
+  const result = await chatJson<GrammarFullResult>(systemPrompt, userPrompt, modelName);
+  return result ?? { issues: [] };
+}
+
+export async function summarizeTranscript(
+  transcript: string,
+  modelName = 'qwen2.5:7b'
+): Promise<SummaryResult> {
+  const systemPrompt = `You are a meeting summarizer. Analyze transcribed meeting speech and produce a concise, clear summary with key discussion points.`;
+
+  const userPrompt = `Summarize this meeting transcript. Provide a brief overall summary and a list of key points discussed.
+
+Transcript:
+${transcript}
+
+Respond with JSON:
+{
+  "summary": "A concise 2-4 sentence summary of the meeting",
+  "keyPoints": ["key point 1", "key point 2", ...]
+}`;
+
+  const result = await chatJson<SummaryResult>(systemPrompt, userPrompt, modelName);
+  return result ?? { summary: '', keyPoints: [] };
+}
+
+export async function extractActionItems(
+  transcript: string,
+  modelName = 'qwen2.5:7b'
+): Promise<ActionItemsResult> {
+  const systemPrompt = `You are a meeting assistant. Extract action items, tasks, commitments, and follow-ups from transcribed meeting speech. Only extract items that were clearly stated or agreed upon.`;
+
+  const userPrompt = `Extract all action items from this meeting transcript. Include the task description, and if mentioned, who is responsible and any deadline.
+
+Transcript:
+${transcript}
+
+Respond with JSON:
+{
+  "items": [
+    {
+      "task": "description of the action item",
+      "owner": "person responsible (if mentioned)",
+      "deadline": "deadline (if mentioned)"
+    }
+  ]
+}
+
+If no action items found, return {"items": []}.`;
+
+  const result = await chatJson<ActionItemsResult>(systemPrompt, userPrompt, modelName);
+  return result ?? { items: [] };
+}
+
+export async function suggestVocabulary(
+  transcript: string,
+  modelName = 'qwen2.5:7b'
+): Promise<VocabularyResult> {
+  const systemPrompt = `You are an English language coach specializing in professional communication. Identify informal, imprecise, or weak word choices in meeting speech and suggest stronger, more professional alternatives. Focus on vocabulary that would make the speaker sound more fluent and natural in a business context.`;
+
+  const userPrompt = `Review this meeting transcript and suggest vocabulary improvements. Focus on word choices that could be more professional, precise, or natural-sounding.
+
+Transcript:
+${transcript}
+
+Respond with JSON:
+{
+  "suggestions": [
+    {
+      "original": "the word or phrase used",
+      "suggestion": "a better alternative",
+      "reason": "why this is better"
+    }
+  ]
+}
+
+If no suggestions, return {"suggestions": []}.`;
+
+  const result = await chatJson<VocabularyResult>(systemPrompt, userPrompt, modelName);
+  return result ?? { suggestions: [] };
+}
+
+export async function analyzeFluency(
+  transcript: string,
+  modelName = 'qwen2.5:7b'
+): Promise<FluencyResult> {
+  const systemPrompt = `You are a fluency evaluator for non-native English speakers. Analyze transcribed speech for fluency indicators: filler words (um, uh, like, you know, basically, actually), repeated phrases, sentence complexity, and overall flow. Provide a fluency score from 0-100.`;
+
+  const userPrompt = `Evaluate the fluency of this meeting transcript. Count filler words, identify repetitions, and assess overall speaking fluency.
+
+Transcript:
+${transcript}
+
+Respond with JSON:
+{
+  "score": 75,
+  "fillerWordCount": 12,
+  "repetitionCount": 3,
+  "notes": ["specific observation 1", "specific observation 2"]
+}`;
+
+  const result = await chatJson<FluencyResult>(systemPrompt, userPrompt, modelName);
+  return result ?? { score: 0, fillerWordCount: 0, repetitionCount: 0, notes: [] };
 }

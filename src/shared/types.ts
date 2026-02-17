@@ -55,6 +55,55 @@ export interface ErrorCategory {
   parentCategory: string | null;
 }
 
+// Context analysis types
+
+export type ContextAnalysisType = 'grammar_full' | 'summary' | 'action_items' | 'vocabulary' | 'fluency';
+
+export interface MeetingAnalysis {
+  id: string;
+  meetingId: string;
+  type: ContextAnalysisType;
+  content: string; // JSON string — parse per type
+  createdAt: number;
+}
+
+export interface GrammarFullResult {
+  issues: {
+    original: string;
+    corrected: string;
+    explanation: string;
+    severity: 'minor' | 'moderate' | 'major';
+  }[];
+}
+
+export interface SummaryResult {
+  summary: string;
+  keyPoints: string[];
+}
+
+export interface ActionItemsResult {
+  items: {
+    task: string;
+    owner?: string;
+    deadline?: string;
+  }[];
+}
+
+export interface VocabularyResult {
+  suggestions: {
+    original: string;
+    suggestion: string;
+    reason: string;
+  }[];
+}
+
+export interface FluencyResult {
+  score: number;
+  fillerWordCount: number;
+  repetitionCount: number;
+  notes: string[];
+}
+
 // IPC types
 
 export interface CreateMeetingInput {
@@ -66,6 +115,7 @@ export interface MeetingWithAnalysis extends Meeting {
   segments: TranscriptSegment[];
   mistakes: Mistake[];
   profile: Profile | null;
+  analyses: MeetingAnalysis[];
 }
 
 export interface MeetingFilters {
@@ -101,10 +151,15 @@ export interface AppSettings {
   ollamaModel: string;
   chunkDurationSeconds: number;
   dataPath: string;
+  analysisGrammarFull: boolean;
+  analysisSummary: boolean;
+  analysisActionItems: boolean;
+  analysisVocabulary: boolean;
+  analysisFluency: boolean;
 }
 
 export interface ProgressEvent {
-  stage: 'transcribing' | 'analyzing';
+  stage: 'transcribing' | 'analyzing' | 'context-analyzing';
   current: number;
   total: number;
   message: string;
@@ -178,6 +233,9 @@ export interface ElectronAPI {
   downloadWhisperBinary(variant: WhisperBinaryVariant): Promise<void>;
   pullOllamaModel(modelName: string): Promise<void>;
   checkGpu(): Promise<GpuInfo>;
+
+  // Context analyses
+  runContextAnalyses(meetingId: string): Promise<MeetingAnalysis[]>;
 
   // Events
   onProgress(callback: (event: ProgressEvent) => void): () => void;

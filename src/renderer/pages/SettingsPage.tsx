@@ -104,6 +104,36 @@ export function SettingsPage() {
           </select>
         </div>
 
+        {/* Analysis Types */}
+        <div className="bg-slate-800 rounded-lg p-4">
+          <h3 className="text-white font-medium mb-1">Analysis Types</h3>
+          <p className="text-slate-400 text-xs mb-4">
+            Line-by-line grammar analysis always runs. These additional analyses use the full transcript context.
+          </p>
+          <div className="space-y-3">
+            {([
+              ['analysisGrammarFull', 'Full-Context Grammar', 'Re-analyzes grammar considering the complete conversation flow'],
+              ['analysisSummary', 'Conversation Summary', 'Summarizes the meeting and extracts key points'],
+              ['analysisActionItems', 'Action Items', 'Extracts tasks, owners, and deadlines from the conversation'],
+              ['analysisVocabulary', 'Vocabulary Suggestions', 'Recommends stronger or more professional word choices'],
+              ['analysisFluency', 'Fluency Score', 'Rates filler word usage, repetition, and sentence complexity'],
+            ] as const).map(([key, label, desc]) => (
+              <label key={key} className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={settings[key] as boolean}
+                  onChange={e => setSettings({ ...settings, [key]: e.target.checked })}
+                  className="mt-0.5 accent-blue-500"
+                />
+                <div>
+                  <p className="text-sm text-white">{label}</p>
+                  <p className="text-xs text-slate-400">{desc}</p>
+                </div>
+              </label>
+            ))}
+          </div>
+        </div>
+
         {/* Prerequisites check */}
         <div className="bg-slate-800 rounded-lg p-4">
           <h3 className="text-white font-medium mb-2 flex items-center gap-2">

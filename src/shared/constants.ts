@@ -31,6 +31,11 @@ export const DEFAULT_SETTINGS = {
   ollamaModel: 'qwen2.5:7b',
   chunkDurationSeconds: 300,
   dataPath: '',
+  analysisGrammarFull: true,
+  analysisSummary: true,
+  analysisActionItems: true,
+  analysisVocabulary: true,
+  analysisFluency: true,
 } as const;
 
 export const IPC_CHANNELS = {
@@ -44,6 +49,7 @@ export const IPC_CHANNELS = {
   // Analysis
   ANALYZE_TRANSCRIPT: 'analysis:analyze-transcript',
   RE_ANALYZE_MEETING: 'analysis:re-analyze',
+  RUN_CONTEXT_ANALYSES: 'analysis:run-context-analyses',
 
   // Meetings
   CREATE_MEETING: 'meeting:create',
