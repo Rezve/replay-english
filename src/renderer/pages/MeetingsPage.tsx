@@ -1,43 +1,50 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { List, Trash2, Clock, AlertTriangle } from 'lucide-react';
+import { List, Search, ChevronDown } from 'lucide-react';
 import { api } from '../lib/api';
-import type { Meeting } from '../../shared/types';
+import { MeetingCard } from '../components/meetings/MeetingCard';
+import type { Meeting, Profile } from '../../shared/types';
 
-function formatDate(timestamp: number): string {
-  return new Date(timestamp).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
+type StatusFilter = 'all' | 'completed' | 'failed' | 'in-progress';
+type TimeRangeFilter = 'all' | 'today' | 'week' | 'month';
 
-function formatDuration(seconds: number | null): string {
-  if (!seconds) return '--';
-  const mins = Math.floor(seconds / 60);
-  const secs = seconds % 60;
-  return `${mins}m ${secs}s`;
-}
+const statusOptions: { value: StatusFilter; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'completed', label: 'Completed' },
+  { value: 'failed', label: 'Failed' },
+  { value: 'in-progress', label: 'In Progress' },
+];
 
-const statusColors: Record<string, string> = {
-  recording: 'bg-red-500/20 text-red-400',
-  transcribing: 'bg-yellow-500/20 text-yellow-400',
-  analyzing: 'bg-blue-500/20 text-blue-400',
-  transcribed: 'bg-orange-500/20 text-orange-400',
-  completed: 'bg-green-500/20 text-green-400',
-  failed: 'bg-red-500/20 text-red-400',
-};
+const timeRangeOptions: { value: TimeRangeFilter; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'today', label: 'Today' },
+  { value: 'week', label: 'This Week' },
+  { value: 'month', label: 'This Month' },
+];
+
+const IN_PROGRESS_STATUSES = ['recording', 'transcribing', 'analyzing', 'transcribed'];
 
 export function MeetingsPage() {
   const navigate = useNavigate();
+
+  // Data
   const [meetings, setMeetings] = useState<Meeting[]>([]);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const loadMeetings = async () => {
+  // Filters
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [timeRange, setTimeRange] = useState<TimeRangeFilter>('all');
+  const [profileId, setProfileId] = useState('');
+
+  // Grouping
+  const [collapsedMonths, setCollapsedMonths] = useState<Set<string>>(new Set());
+
+  const loadMeetings = async (pid?: string) => {
     try {
-      const data = await api.listMeetings();
+      const filters = pid ? { profileId: pid } : undefined;
+      const data = await api.listMeetings(filters);
       setMeetings(data);
     } catch (err) {
       console.error('Failed to load meetings:', err);
@@ -47,18 +54,91 @@ export function MeetingsPage() {
   };
 
   useEffect(() => {
+    api.listProfiles().then(setProfiles).catch(console.error);
     loadMeetings();
   }, []);
+
+  useEffect(() => {
+    setLoading(true);
+    loadMeetings(profileId || undefined);
+  }, [profileId]);
+
+  const profileMap = useMemo(() => {
+    const map = new Map<string, Profile>();
+    for (const p of profiles) map.set(p.id, p);
+    return map;
+  }, [profiles]);
+
+  const filteredMeetings = useMemo(() => {
+    let result = meetings;
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(m => m.title.toLowerCase().includes(q));
+    }
+
+    if (statusFilter === 'completed') {
+      result = result.filter(m => m.status === 'completed');
+    } else if (statusFilter === 'failed') {
+      result = result.filter(m => m.status === 'failed');
+    } else if (statusFilter === 'in-progress') {
+      result = result.filter(m => IN_PROGRESS_STATUSES.includes(m.status));
+    }
+
+    if (timeRange !== 'all') {
+      const now = Date.now();
+      const cutoffs: Record<string, number> = {
+        today: now - 24 * 60 * 60 * 1000,
+        week: now - 7 * 24 * 60 * 60 * 1000,
+        month: now - 30 * 24 * 60 * 60 * 1000,
+      };
+      result = result.filter(m => m.startedAt >= cutoffs[timeRange]);
+    }
+
+    return result;
+  }, [meetings, searchQuery, statusFilter, timeRange]);
+
+  const groupedByMonth = useMemo(() => {
+    if (timeRange !== 'all') return null;
+
+    const groups = new Map<string, Meeting[]>();
+    for (const m of filteredMeetings) {
+      const key = new Date(m.startedAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+      const existing = groups.get(key);
+      if (existing) {
+        existing.push(m);
+      } else {
+        groups.set(key, [m]);
+      }
+    }
+    return groups;
+  }, [filteredMeetings, timeRange]);
 
   const handleDelete = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
     if (confirm('Delete this meeting and all its analysis data?')) {
       await api.deleteMeeting(id);
-      loadMeetings();
+      loadMeetings(profileId || undefined);
     }
   };
 
-  if (loading) {
+  const toggleMonth = (month: string) => {
+    setCollapsedMonths(prev => {
+      const next = new Set(prev);
+      if (next.has(month)) next.delete(month);
+      else next.add(month);
+      return next;
+    });
+  };
+
+  const clearFilters = () => {
+    setSearchQuery('');
+    setStatusFilter('all');
+    setTimeRange('all');
+    setProfileId('');
+  };
+
+  if (loading && meetings.length === 0) {
     return (
       <div className="flex items-center justify-center h-full">
         <p className="text-slate-400">Loading meetings...</p>
@@ -66,13 +146,93 @@ export function MeetingsPage() {
     );
   }
 
+  const renderMeetingCard = (meeting: Meeting) => {
+    const profile = meeting.profileId ? profileMap.get(meeting.profileId) : undefined;
+    return (
+      <MeetingCard
+        key={meeting.id}
+        meeting={meeting}
+        profileColor={profile?.color}
+        onDelete={handleDelete}
+        onClick={(id) => navigate(`/meetings/${id}`)}
+      />
+    );
+  };
+
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold text-white">Meetings</h2>
-        <p className="text-slate-400 text-sm">{meetings.length} meeting{meetings.length !== 1 ? 's' : ''}</p>
+        <p className="text-slate-400 text-sm">
+          {filteredMeetings.length === meetings.length
+            ? `${meetings.length} meeting${meetings.length !== 1 ? 's' : ''}`
+            : `${filteredMeetings.length} of ${meetings.length} meetings`}
+        </p>
       </div>
 
+      {/* Filters */}
+      {meetings.length > 0 && (
+        <div className="space-y-3">
+          {/* Search + Profile */}
+          <div className="flex items-center gap-3">
+            <div className="relative flex-1">
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+              <input
+                type="text"
+                placeholder="Search meetings..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm placeholder-slate-500 focus:outline-none focus:border-slate-500"
+              />
+            </div>
+            {profiles.length > 0 && (
+              <select
+                value={profileId}
+                onChange={e => setProfileId(e.target.value)}
+                className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm"
+              >
+                <option value="">All profiles</option>
+                {profiles.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          {/* Status + Time Range pills */}
+          <div className="flex items-center gap-3">
+            <div className="flex bg-slate-800 rounded-lg p-0.5">
+              {statusOptions.map(opt => (
+                <button
+                  key={opt.value}
+                  onClick={() => setStatusFilter(opt.value)}
+                  className={`px-3 py-1 rounded text-sm transition-colors ${
+                    statusFilter === opt.value ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            <div className="flex bg-slate-800 rounded-lg p-0.5">
+              {timeRangeOptions.map(opt => (
+                <button
+                  key={opt.value}
+                  onClick={() => setTimeRange(opt.value)}
+                  className={`px-3 py-1 rounded text-sm transition-colors ${
+                    timeRange === opt.value ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Content */}
       {meetings.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <div className="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center mb-4">
@@ -83,50 +243,45 @@ export function MeetingsPage() {
             Start a recording to see your meetings here
           </p>
         </div>
+      ) : filteredMeetings.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-20 text-center">
+          <p className="text-slate-400">No meetings match your filters</p>
+          <button
+            onClick={clearFilters}
+            className="text-blue-400 hover:text-blue-300 text-sm mt-2"
+          >
+            Clear filters
+          </button>
+        </div>
+      ) : groupedByMonth ? (
+        <div className="space-y-4">
+          {Array.from(groupedByMonth.entries()).map(([monthLabel, groupMeetings]) => {
+            const isCollapsed = collapsedMonths.has(monthLabel);
+            return (
+              <div key={monthLabel}>
+                <button
+                  onClick={() => toggleMonth(monthLabel)}
+                  className="flex items-center gap-2 w-full py-2 text-left text-slate-400 hover:text-white text-sm font-medium transition-colors"
+                >
+                  <ChevronDown
+                    size={14}
+                    className={`transition-transform ${isCollapsed ? '-rotate-90' : ''}`}
+                  />
+                  {monthLabel}
+                  <span className="text-slate-600 text-xs">({groupMeetings.length})</span>
+                </button>
+                {!isCollapsed && (
+                  <div className="space-y-2">
+                    {groupMeetings.map(renderMeetingCard)}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       ) : (
         <div className="space-y-2">
-          {meetings.map((meeting) => (
-            <div
-              key={meeting.id}
-              onClick={() => navigate(`/meetings/${meeting.id}`)}
-              className="bg-slate-800 hover:bg-slate-750 rounded-lg p-4 cursor-pointer transition-colors border border-slate-700 hover:border-slate-600"
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex-1">
-                  <div className="flex items-center gap-3">
-                    <h3 className="text-white font-medium">{meeting.title}</h3>
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${statusColors[meeting.status] || ''}`}>
-                      {meeting.status}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-4 mt-1.5 text-sm text-slate-400">
-                    <span>{formatDate(meeting.startedAt)}</span>
-                    <span className="flex items-center gap-1">
-                      <Clock size={14} />
-                      {formatDuration(meeting.durationSeconds)}
-                    </span>
-                    {meeting.status === 'completed' && (
-                      <>
-                        <span className="flex items-center gap-1">
-                          <AlertTriangle size={14} />
-                          {meeting.totalMistakes} mistake{meeting.totalMistakes !== 1 ? 's' : ''}
-                        </span>
-                        {meeting.overallScore !== null && (
-                          <span>Score: {Math.round(meeting.overallScore)}/100</span>
-                        )}
-                      </>
-                    )}
-                  </div>
-                </div>
-                <button
-                  onClick={(e) => handleDelete(e, meeting.id)}
-                  className="p-2 text-slate-500 hover:text-red-400 transition-colors"
-                >
-                  <Trash2 size={16} />
-                </button>
-              </div>
-            </div>
-          ))}
+          {filteredMeetings.map(renderMeetingCard)}
         </div>
       )}
     </div>
