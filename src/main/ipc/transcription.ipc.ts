@@ -1,18 +1,25 @@
 import { ipcMain, BrowserWindow } from 'electron';
 import { v4 as uuidv4 } from 'uuid';
 import { eq } from 'drizzle-orm';
-import { IPC_CHANNELS } from '../../shared/constants';
+import { IPC_CHANNELS, DEFAULT_SETTINGS } from '../../shared/constants';
 import { transcribeWav } from '../services/whisper.service';
 import { convertToWav } from '../services/audio.service';
 import { getDb } from '../db/connection';
 import * as schema from '../db/schema';
 import type { TranscriptSegment } from '../../shared/types';
 
+async function getWhisperModel(): Promise<string> {
+  const db = getDb();
+  const row = await db.select().from(schema.settings).where(eq(schema.settings.key, 'whisperModel')).get();
+  return row?.value || DEFAULT_SETTINGS.whisperModel;
+}
+
 export function registerTranscriptionHandlers(mainWindow: BrowserWindow) {
   ipcMain.handle(
     IPC_CHANNELS.TRANSCRIBE_CHUNK,
     async (_event, wavPath: string): Promise<TranscriptSegment[]> => {
-      const segments = await transcribeWav(wavPath);
+      const whisperModel = await getWhisperModel();
+      const segments = await transcribeWav(wavPath, whisperModel);
       return segments.map((seg, index) => ({
         id: uuidv4(),
         meetingId: '',
@@ -31,6 +38,7 @@ export function registerTranscriptionHandlers(mainWindow: BrowserWindow) {
     'pipeline:transcribe-meeting',
     async (_event, meetingId: string, chunkPaths: string[]) => {
       const db = getDb();
+      const whisperModel = await getWhisperModel();
       const allSegments: TranscriptSegment[] = [];
       let globalSegmentIndex = 0;
 
@@ -48,7 +56,7 @@ export function registerTranscriptionHandlers(mainWindow: BrowserWindow) {
 
         // Transcribe
         const chunkOffset = chunkIndex * 300; // 5 min offset per chunk
-        const segments = await transcribeWav(wavPath);
+        const segments = await transcribeWav(wavPath, whisperModel);
 
         // Save segments to DB
         for (const seg of segments) {

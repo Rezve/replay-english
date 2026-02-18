@@ -31,6 +31,7 @@ export const DEFAULT_SETTINGS = {
   ollamaModel: 'qwen2.5:7b',
   chunkDurationSeconds: 300,
   dataPath: '',
+  analysisLineByLine: true,
   analysisGrammarFull: true,
   analysisSummary: true,
   analysisActionItems: true,

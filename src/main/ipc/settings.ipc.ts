@@ -20,6 +20,7 @@ export function registerSettingsHandlers() {
       ollamaModel: settingsMap['ollamaModel'] || DEFAULT_SETTINGS.ollamaModel,
       chunkDurationSeconds: parseInt(settingsMap['chunkDurationSeconds'] || String(DEFAULT_SETTINGS.chunkDurationSeconds), 10),
       dataPath: settingsMap['dataPath'] || '',
+      analysisLineByLine: settingsMap['analysisLineByLine'] !== 'false',
       analysisGrammarFull: settingsMap['analysisGrammarFull'] !== 'false',
       analysisSummary: settingsMap['analysisSummary'] !== 'false',
       analysisActionItems: settingsMap['analysisActionItems'] !== 'false',

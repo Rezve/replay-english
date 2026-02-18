@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate, useBlocker } from 'react-router-dom';
 import { Mic, Square, Loader2 } from 'lucide-react';
 import { api } from '../lib/api';
-import type { Meeting, Profile } from '../../shared/types';
+import type { Meeting, Profile, AppSettings } from '../../shared/types';
 
 function formatTimer(seconds: number): string {
   const hrs = Math.floor(seconds / 3600);
@@ -27,6 +27,7 @@ export function RecordingPage() {
   const [selectedMicId, setSelectedMicId] = useState<string>('');
   const [availableMics, setAvailableMics] = useState<MediaDeviceInfo[]>([]);
   const [captureDesktop, setCaptureDesktop] = useState(true);
+  const [chunkDurationMs, setChunkDurationMs] = useState(300000);
 
   const blocker = useBlocker(state === 'recording');
 
@@ -45,6 +46,9 @@ export function RecordingPage() {
 
   useEffect(() => {
     api.listProfiles().then(setProfiles).catch(console.error);
+    api.getSettings().then((s: AppSettings) => {
+      setChunkDurationMs(s.chunkDurationSeconds * 1000);
+    }).catch(console.error);
 
     // Enumerate available microphones
     navigator.mediaDevices.enumerateDevices()
@@ -188,7 +192,7 @@ export function RecordingPage() {
           micRecorderRef.current = createMicRecorder();
           micRecorderRef.current.start();
         }
-      }, 300000); // 5 minutes
+      }, chunkDurationMs);
 
       // Start timer
       setElapsed(0);

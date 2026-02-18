@@ -36,7 +36,9 @@ export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
   ipcMain.handle(
     IPC_CHANNELS.ANALYZE_TRANSCRIPT,
     async (_event, meetingId: string, segments: TranscriptSegment[]) => {
-      const { ollamaModel } = await getSettingsModels();
+      const settingsMap = await getSettingsMap();
+      if (settingsMap['analysisLineByLine'] === 'false') return [];
+      const ollamaModel = settingsMap['ollamaModel'] || DEFAULT_SETTINGS.ollamaModel;
       return await analyzeTranscript(
         meetingId,
         segments,
@@ -118,39 +120,54 @@ export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
         }
       }
 
-      // Update segment count
+      // Determine which analyses are enabled
+      const lineByLineEnabled = settingsMap['analysisLineByLine'] !== 'false';
+      const enabledTypes = getEnabledAnalysisTypes(settingsMap);
+      const hasAnyAnalysis = lineByLineEnabled || enabledTypes.length > 0;
+
+      // Update segment count and set status
       await db.update(pipelineSchema.meetings)
-        .set({ totalSegments: allSegments.length, status: 'analyzing' })
+        .set({
+          totalSegments: allSegments.length,
+          status: hasAnyAnalysis ? 'analyzing' : 'completed',
+          ...(!hasAnyAnalysis ? { endedAt: Date.now() } : {}),
+        })
         .where(require('drizzle-orm').eq(pipelineSchema.meetings.id, meetingId));
 
-      // Phase 2: Analysis
-      const mistakes = await analyzeTranscript(
-        meetingId,
-        allSegments,
-        pipelineOllamaModel,
-        (current, total) => {
-          mainWindow.webContents.send(IPC_CHANNELS.PROGRESS, {
-            stage: 'analyzing',
-            current,
-            total,
-            message: `Analyzing batch ${current} of ${total}...`,
-          });
-        },
-        (batchMistakes, batchIndex, totalBatches, done) => {
-          const event: AnalysisBatchEvent = { meetingId, mistakes: batchMistakes, batchIndex, totalBatches, done };
-          mainWindow.webContents.send(IPC_CHANNELS.ANALYSIS_BATCH_READY, event);
-        }
-      );
+      if (!hasAnyAnalysis) {
+        return { segments: allSegments, mistakes: [] };
+      }
 
-      // Check if analysis was cancelled — if so, return early
-      const { isAnalysisCancelled } = await import('../services/analysis.service');
-      const meetingAfterAnalysis = await db.select().from(pipelineSchema.meetings).where(require('drizzle-orm').eq(pipelineSchema.meetings.id, meetingId)).get();
-      if (meetingAfterAnalysis?.status === 'transcribed' || isAnalysisCancelled(meetingId)) {
-        return { segments: allSegments, mistakes };
+      // Phase 2: Line-by-line analysis (if enabled)
+      let mistakes: any[] = [];
+      if (lineByLineEnabled) {
+        mistakes = await analyzeTranscript(
+          meetingId,
+          allSegments,
+          pipelineOllamaModel,
+          (current, total) => {
+            mainWindow.webContents.send(IPC_CHANNELS.PROGRESS, {
+              stage: 'analyzing',
+              current,
+              total,
+              message: `Analyzing batch ${current} of ${total}...`,
+            });
+          },
+          (batchMistakes, batchIndex, totalBatches, done) => {
+            const event: AnalysisBatchEvent = { meetingId, mistakes: batchMistakes, batchIndex, totalBatches, done };
+            mainWindow.webContents.send(IPC_CHANNELS.ANALYSIS_BATCH_READY, event);
+          }
+        );
+
+        // Check if analysis was cancelled — if so, return early
+        const { isAnalysisCancelled } = await import('../services/analysis.service');
+        const meetingAfterAnalysis = await db.select().from(pipelineSchema.meetings).where(require('drizzle-orm').eq(pipelineSchema.meetings.id, meetingId)).get();
+        if (meetingAfterAnalysis?.status === 'transcribed' || isAnalysisCancelled(meetingId)) {
+          return { segments: allSegments, mistakes };
+        }
       }
 
       // Phase 3: Context analyses
-      const enabledTypes = getEnabledAnalysisTypes(settingsMap);
       if (enabledTypes.length > 0) {
         await runContextAnalyses(
           meetingId,
@@ -166,6 +183,13 @@ export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
             });
           }
         );
+      }
+
+      // If line-by-line was skipped, analyzeTranscript didn't set 'completed' — do it now
+      if (!lineByLineEnabled) {
+        await db.update(pipelineSchema.meetings)
+          .set({ status: 'completed', endedAt: Date.now() })
+          .where(require('drizzle-orm').eq(pipelineSchema.meetings.id, meetingId));
       }
 
       return { segments: allSegments, mistakes };
@@ -191,34 +215,46 @@ export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
       // Delete old mistakes
       await db.delete(dbSchema.mistakes).where(eq(dbSchema.mistakes.meetingId, meetingId));
 
-      // Set status to analyzing
-      await db.update(dbSchema.meetings)
-        .set({ status: 'analyzing', totalMistakes: 0, overallScore: null })
-        .where(eq(dbSchema.meetings.id, meetingId));
-
-      // Re-run analysis
       const settingsMap = await getSettingsMap();
       const reAnalyzeModel = settingsMap['ollamaModel'] || DEFAULT_SETTINGS.ollamaModel;
-      const mistakes = await analyzeTranscript(
-        meetingId,
-        segments,
-        reAnalyzeModel,
-        (current, total) => {
-          mainWindow.webContents.send(IPC_CHANNELS.PROGRESS, {
-            stage: 'analyzing',
-            current,
-            total,
-            message: `Analyzing batch ${current} of ${total}...`,
-          });
-        },
-        (batchMistakes, batchIndex, totalBatches, done) => {
-          const event: AnalysisBatchEvent = { meetingId, mistakes: batchMistakes, batchIndex, totalBatches, done };
-          mainWindow.webContents.send(IPC_CHANNELS.ANALYSIS_BATCH_READY, event);
-        }
-      );
+      const lineByLineEnabled = settingsMap['analysisLineByLine'] !== 'false';
+      const enabledTypes = getEnabledAnalysisTypes(settingsMap);
+      const hasAnyAnalysis = lineByLineEnabled || enabledTypes.length > 0;
+
+      // Set status based on whether any analysis is enabled
+      await db.update(dbSchema.meetings)
+        .set({
+          status: hasAnyAnalysis ? 'analyzing' : 'completed',
+          totalMistakes: 0,
+          overallScore: null,
+        })
+        .where(eq(dbSchema.meetings.id, meetingId));
+
+      if (!hasAnyAnalysis) return [];
+
+      // Re-run line-by-line analysis
+      let mistakes: any[] = [];
+      if (lineByLineEnabled) {
+        mistakes = await analyzeTranscript(
+          meetingId,
+          segments,
+          reAnalyzeModel,
+          (current, total) => {
+            mainWindow.webContents.send(IPC_CHANNELS.PROGRESS, {
+              stage: 'analyzing',
+              current,
+              total,
+              message: `Analyzing batch ${current} of ${total}...`,
+            });
+          },
+          (batchMistakes, batchIndex, totalBatches, done) => {
+            const event: AnalysisBatchEvent = { meetingId, mistakes: batchMistakes, batchIndex, totalBatches, done };
+            mainWindow.webContents.send(IPC_CHANNELS.ANALYSIS_BATCH_READY, event);
+          }
+        );
+      }
 
       // Re-run context analyses
-      const enabledTypes = getEnabledAnalysisTypes(settingsMap);
       if (enabledTypes.length > 0) {
         await runContextAnalyses(
           meetingId,
@@ -234,6 +270,13 @@ export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
             });
           }
         );
+      }
+
+      // If line-by-line was skipped, set completed now
+      if (!lineByLineEnabled) {
+        await db.update(dbSchema.meetings)
+          .set({ status: 'completed', endedAt: Date.now() })
+          .where(eq(dbSchema.meetings.id, meetingId));
       }
 
       return mistakes;
@@ -306,40 +349,51 @@ export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
       // Delete any existing partial mistakes
       await db.delete(dbSchema.mistakes).where(eq(dbSchema.mistakes.meetingId, meetingId));
 
-      // Set status to analyzing
-      await db.update(dbSchema.meetings)
-        .set({ status: 'analyzing', totalMistakes: 0, overallScore: null })
-        .where(eq(dbSchema.meetings.id, meetingId));
-
       const settingsMap = await getSettingsMap();
       const ollamaModel = settingsMap['ollamaModel'] || DEFAULT_SETTINGS.ollamaModel;
+      const lineByLineEnabled = settingsMap['analysisLineByLine'] !== 'false';
+      const enabledTypes = getEnabledAnalysisTypes(settingsMap);
+      const hasAnyAnalysis = lineByLineEnabled || enabledTypes.length > 0;
 
-      const mistakes = await analyzeTranscript(
-        meetingId,
-        segments,
-        ollamaModel,
-        (current, total) => {
-          mainWindow.webContents.send(IPC_CHANNELS.PROGRESS, {
-            stage: 'analyzing',
-            current,
-            total,
-            message: `Analyzing batch ${current} of ${total}...`,
-          });
-        },
-        (batchMistakes, batchIndex, totalBatches, done) => {
-          const event: AnalysisBatchEvent = { meetingId, mistakes: batchMistakes, batchIndex, totalBatches, done };
-          mainWindow.webContents.send(IPC_CHANNELS.ANALYSIS_BATCH_READY, event);
+      // Set status based on whether any analysis is enabled
+      await db.update(dbSchema.meetings)
+        .set({
+          status: hasAnyAnalysis ? 'analyzing' : 'completed',
+          totalMistakes: 0,
+          overallScore: null,
+        })
+        .where(eq(dbSchema.meetings.id, meetingId));
+
+      if (!hasAnyAnalysis) return [];
+
+      let mistakes: any[] = [];
+      if (lineByLineEnabled) {
+        mistakes = await analyzeTranscript(
+          meetingId,
+          segments,
+          ollamaModel,
+          (current, total) => {
+            mainWindow.webContents.send(IPC_CHANNELS.PROGRESS, {
+              stage: 'analyzing',
+              current,
+              total,
+              message: `Analyzing batch ${current} of ${total}...`,
+            });
+          },
+          (batchMistakes, batchIndex, totalBatches, done) => {
+            const event: AnalysisBatchEvent = { meetingId, mistakes: batchMistakes, batchIndex, totalBatches, done };
+            mainWindow.webContents.send(IPC_CHANNELS.ANALYSIS_BATCH_READY, event);
+          }
+        );
+
+        // If analysis was cancelled mid-way, don't run context analyses
+        const meeting = await db.select().from(dbSchema.meetings).where(eq(dbSchema.meetings.id, meetingId)).get();
+        if (meeting?.status !== 'analyzing') {
+          return mistakes;
         }
-      );
-
-      // If analysis was cancelled mid-way, don't run context analyses
-      const meeting = await db.select().from(dbSchema.meetings).where(eq(dbSchema.meetings.id, meetingId)).get();
-      if (meeting?.status !== 'analyzing') {
-        return mistakes;
       }
 
       // Run context analyses
-      const enabledTypes = getEnabledAnalysisTypes(settingsMap);
       if (enabledTypes.length > 0) {
         await runContextAnalyses(
           meetingId,
@@ -355,6 +409,13 @@ export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
             });
           }
         );
+      }
+
+      // If line-by-line was skipped, set completed now
+      if (!lineByLineEnabled) {
+        await db.update(dbSchema.meetings)
+          .set({ status: 'completed', endedAt: Date.now() })
+          .where(eq(dbSchema.meetings.id, meetingId));
       }
 
       return mistakes;

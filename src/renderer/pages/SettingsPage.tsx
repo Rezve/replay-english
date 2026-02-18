@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Save, Shield } from 'lucide-react';
+import { Check, Shield } from 'lucide-react';
 import { api } from '../lib/api';
 import { SystemCheckModal } from '../components/SystemCheckModal';
 import type { AppSettings } from '../../shared/types';
@@ -12,21 +12,24 @@ export function SettingsPage() {
   const [showModelCheck, setShowModelCheck] = useState(false);
   const [pendingWhisperModel, setPendingWhisperModel] = useState('');
   const [pendingOllamaModel, setPendingOllamaModel] = useState('');
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     api.getSettings().then(setSettings).catch(console.error);
   }, []);
 
-  const handleSave = async () => {
-    if (!settings) return;
-    await api.updateSettings(settings);
+  const persistSettings = useCallback(async (updated: AppSettings) => {
+    setSettings(updated);
+    await api.updateSettings(updated);
     setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  };
+    if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+    savedTimerRef.current = setTimeout(() => setSaved(false), 2000);
+  }, []);
 
   const handleWhisperModelChange = (value: string) => {
     if (!settings) return;
-    setSettings({ ...settings, whisperModel: value });
+    const updated = { ...settings, whisperModel: value };
+    persistSettings(updated);
     setPendingWhisperModel(value);
     setPendingOllamaModel(settings.ollamaModel);
     setShowModelCheck(true);
@@ -34,7 +37,8 @@ export function SettingsPage() {
 
   const handleOllamaModelChange = (value: string) => {
     if (!settings) return;
-    setSettings({ ...settings, ollamaModel: value });
+    const updated = { ...settings, ollamaModel: value };
+    persistSettings(updated);
     setPendingWhisperModel(settings.whisperModel);
     setPendingOllamaModel(value);
     setShowModelCheck(true);
@@ -52,13 +56,12 @@ export function SettingsPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-2xl font-bold text-white">Settings</h2>
-        <button
-          onClick={handleSave}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors"
-        >
-          <Save size={16} />
-          {saved ? 'Saved!' : 'Save'}
-        </button>
+        {saved && (
+          <span className="flex items-center gap-1.5 text-emerald-400 text-sm font-medium">
+            <Check size={16} />
+            Saved
+          </span>
+        )}
       </div>
 
       <div className="space-y-6 max-w-2xl">
@@ -95,7 +98,7 @@ export function SettingsPage() {
           <h3 className="text-white font-medium mb-2">Audio Chunk Duration</h3>
           <select
             value={settings.chunkDurationSeconds}
-            onChange={e => setSettings({ ...settings, chunkDurationSeconds: parseInt(e.target.value) })}
+            onChange={e => persistSettings({ ...settings, chunkDurationSeconds: parseInt(e.target.value) })}
             className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm"
           >
             <option value="180">3 minutes</option>
@@ -108,10 +111,11 @@ export function SettingsPage() {
         <div className="bg-slate-800 rounded-lg p-4">
           <h3 className="text-white font-medium mb-1">Analysis Types</h3>
           <p className="text-slate-400 text-xs mb-4">
-            Line-by-line grammar analysis always runs. These additional analyses use the full transcript context.
+            Choose which analyses to run after transcription.
           </p>
           <div className="space-y-3">
             {([
+              ['analysisLineByLine', 'Line-by-Line Grammar', 'Checks each segment individually for grammar, vocabulary, and phrasing errors'],
               ['analysisGrammarFull', 'Full-Context Grammar', 'Re-analyzes grammar considering the complete conversation flow'],
               ['analysisSummary', 'Conversation Summary', 'Summarizes the meeting and extracts key points'],
               ['analysisActionItems', 'Action Items', 'Extracts tasks, owners, and deadlines from the conversation'],
@@ -122,7 +126,7 @@ export function SettingsPage() {
                 <input
                   type="checkbox"
                   checked={settings[key] as boolean}
-                  onChange={e => setSettings({ ...settings, [key]: e.target.checked })}
+                  onChange={e => persistSettings({ ...settings, [key]: e.target.checked })}
                   className="mt-0.5 accent-blue-500"
                 />
                 <div>

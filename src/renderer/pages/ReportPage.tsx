@@ -28,6 +28,7 @@ import type {
   VocabularyResult,
   FluencyResult,
   AudioChunkInfo,
+  AppSettings,
 } from '../../shared/types';
 
 type ReportTab = 'line-by-line' | ContextAnalysisType;
@@ -94,6 +95,7 @@ export function ReportPage() {
   const [audioDuration, setAudioDuration] = useState(0);
   const [audioExpanded, setAudioExpanded] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
+  const [chunkDurationSeconds, setChunkDurationSeconds] = useState(300);
 
   const handleReAnalyze = async () => {
     if (!meeting || !id) return;
@@ -244,9 +246,8 @@ export function ReportPage() {
 
   const handlePlayFromTime = useCallback((timeSeconds: number) => {
     if (audioBlobUrls.length === 0) return;
-    const chunkDuration = 300; // 5-minute chunks
-    const chunkIdx = Math.min(Math.floor(timeSeconds / chunkDuration), audioBlobUrls.length - 1);
-    const offset = timeSeconds - chunkIdx * chunkDuration;
+    const chunkIdx = Math.min(Math.floor(timeSeconds / chunkDurationSeconds), audioBlobUrls.length - 1);
+    const offset = timeSeconds - chunkIdx * chunkDurationSeconds;
 
     setAudioExpanded(true);
 
@@ -268,10 +269,15 @@ export function ReportPage() {
         }
       }, 100);
     }
-  }, [audioBlobUrls.length, currentChunkIdx]);
+  }, [audioBlobUrls.length, currentChunkIdx, chunkDurationSeconds]);
 
   useEffect(() => {
     if (!id) return;
+
+    // Load chunk duration from settings for audio playback
+    api.getSettings().then((s: AppSettings) => {
+      setChunkDurationSeconds(s.chunkDurationSeconds);
+    }).catch(console.error);
 
     // Reset the processing flag when the effect runs
     processingStartedRef.current = false;

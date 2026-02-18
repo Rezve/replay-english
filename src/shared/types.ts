@@ -151,6 +151,7 @@ export interface AppSettings {
   ollamaModel: string;
   chunkDurationSeconds: number;
   dataPath: string;
+  analysisLineByLine: boolean;
   analysisGrammarFull: boolean;
   analysisSummary: boolean;
   analysisActionItems: boolean;
