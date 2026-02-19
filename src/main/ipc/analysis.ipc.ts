@@ -196,7 +196,8 @@ export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
     }
   );
 
-  // Re-analyze: clear old mistakes, re-run analysis on existing segments
+  // Re-analyze: clear old line-by-line mistakes, re-run line-by-line grammar analysis only.
+  // Context analyses (grammar_full, summary, etc.) have their own Re-run buttons on their tabs.
   ipcMain.handle(
     IPC_CHANNELS.RE_ANALYZE_MEETING,
     async (_event, meetingId: string) => {
@@ -212,73 +213,34 @@ export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
         throw new Error('No transcript segments found. The meeting must be transcribed first.');
       }
 
-      // Delete old mistakes
-      await db.delete(dbSchema.mistakes).where(eq(dbSchema.mistakes.meetingId, meetingId));
-
       const settingsMap = await getSettingsMap();
       const reAnalyzeModel = settingsMap['ollamaModel'] || DEFAULT_SETTINGS.ollamaModel;
-      const lineByLineEnabled = settingsMap['analysisLineByLine'] !== 'false';
-      const enabledTypes = getEnabledAnalysisTypes(settingsMap);
-      const hasAnyAnalysis = lineByLineEnabled || enabledTypes.length > 0;
 
-      // Set status based on whether any analysis is enabled
+      // Set status to analyzing and clear old mistakes
       await db.update(dbSchema.meetings)
-        .set({
-          status: hasAnyAnalysis ? 'analyzing' : 'completed',
-          totalMistakes: 0,
-          overallScore: null,
-        })
+        .set({ status: 'analyzing', totalMistakes: 0, overallScore: null })
         .where(eq(dbSchema.meetings.id, meetingId));
+      await db.delete(dbSchema.mistakes).where(eq(dbSchema.mistakes.meetingId, meetingId));
 
-      if (!hasAnyAnalysis) return [];
+      const mistakes = await analyzeTranscript(
+        meetingId,
+        segments,
+        reAnalyzeModel,
+        (current, total) => {
+          mainWindow.webContents.send(IPC_CHANNELS.PROGRESS, {
+            stage: 'analyzing',
+            current,
+            total,
+            message: `Analyzing batch ${current} of ${total}...`,
+          });
+        },
+        (batchMistakes, batchIndex, totalBatches, done) => {
+          const event: AnalysisBatchEvent = { meetingId, mistakes: batchMistakes, batchIndex, totalBatches, done };
+          mainWindow.webContents.send(IPC_CHANNELS.ANALYSIS_BATCH_READY, event);
+        }
+      );
 
-      // Re-run line-by-line analysis
-      let mistakes: any[] = [];
-      if (lineByLineEnabled) {
-        mistakes = await analyzeTranscript(
-          meetingId,
-          segments,
-          reAnalyzeModel,
-          (current, total) => {
-            mainWindow.webContents.send(IPC_CHANNELS.PROGRESS, {
-              stage: 'analyzing',
-              current,
-              total,
-              message: `Analyzing batch ${current} of ${total}...`,
-            });
-          },
-          (batchMistakes, batchIndex, totalBatches, done) => {
-            const event: AnalysisBatchEvent = { meetingId, mistakes: batchMistakes, batchIndex, totalBatches, done };
-            mainWindow.webContents.send(IPC_CHANNELS.ANALYSIS_BATCH_READY, event);
-          }
-        );
-      }
-
-      // Re-run context analyses
-      if (enabledTypes.length > 0) {
-        await runContextAnalyses(
-          meetingId,
-          segments,
-          reAnalyzeModel,
-          enabledTypes,
-          (type, done) => {
-            mainWindow.webContents.send(IPC_CHANNELS.PROGRESS, {
-              stage: 'context-analyzing',
-              current: done ? 1 : 0,
-              total: 1,
-              message: done ? `${type} complete` : `Running ${type}...`,
-            });
-          }
-        );
-      }
-
-      // If line-by-line was skipped, set completed now
-      if (!lineByLineEnabled) {
-        await db.update(dbSchema.meetings)
-          .set({ status: 'completed', endedAt: Date.now() })
-          .where(eq(dbSchema.meetings.id, meetingId));
-      }
-
+      // analyzeTranscript sets meeting status to 'completed' when done
       return mistakes;
     }
   );
