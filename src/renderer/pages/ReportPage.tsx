@@ -123,7 +123,11 @@ export function ReportPage() {
       meeting.title,
       date,
       '',
-      ...meeting.segments.map(s => `[${formatTime(s.startTime)}] ${s.text}`),
+      ...meeting.segments.map(s =>
+        s.translatedText
+          ? `[${formatTime(s.startTime)}] ${s.text}\n                     → ${s.translatedText}`
+          : `[${formatTime(s.startTime)}] ${s.text}`
+      ),
     ];
     const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -712,22 +716,27 @@ export function ReportPage() {
                           {formatTime(segment.startTime)}
                         </span>
                       </span>
-                      <p className={`text-sm leading-relaxed ${hasMistakes ? 'text-white' : 'text-slate-300'}`}>
-                        {hasMistakes ? (
-                          <span>
-                            {segMistakes.reduce((text) => {
-                              // Simple highlight — wrap the mistake's original text
-                              return text;
-                            }, '')}
-                            <span className={highlightColors[segMistakes[0].severity]}>
-                              {segment.text}
+                      <div>
+                        <p className={`text-sm leading-relaxed ${hasMistakes ? 'text-white' : 'text-slate-300'}`}>
+                          {hasMistakes ? (
+                            <span>
+                              {segMistakes.reduce((text) => {
+                                // Simple highlight — wrap the mistake's original text
+                                return text;
+                              }, '')}
+                              <span className={highlightColors[segMistakes[0].severity]}>
+                                {segment.text}
+                              </span>
+                              <AlertTriangle size={12} className="inline ml-1 text-orange-400" />
                             </span>
-                            <AlertTriangle size={12} className="inline ml-1 text-orange-400" />
-                          </span>
-                        ) : (
-                          segment.text
+                          ) : (
+                            segment.text
+                          )}
+                        </p>
+                        {segment.translatedText && (
+                          <p className="text-xs text-slate-400 mt-0.5 italic">{segment.translatedText}</p>
                         )}
-                      </p>
+                      </div>
                     </div>
                   );
                 })}

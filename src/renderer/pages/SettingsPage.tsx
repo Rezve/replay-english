@@ -26,6 +26,8 @@ export function SettingsPage() {
     savedTimerRef.current = setTimeout(() => setSaved(false), 2000);
   }, []);
 
+  const isEnglishOnlyModel = (model: string) => model.endsWith('.en.bin');
+
   const handleWhisperModelChange = (value: string) => {
     if (!settings) return;
     const updated = { ...settings, whisperModel: value };
@@ -65,6 +67,24 @@ export function SettingsPage() {
       </div>
 
       <div className="space-y-6 max-w-2xl">
+        {/* Transcription Language */}
+        <div className="bg-slate-800 rounded-lg p-4">
+          <h3 className="text-white font-medium mb-2">Transcription Language</h3>
+          <select
+            value={settings.transcriptionLanguage}
+            onChange={e => persistSettings({ ...settings, transcriptionLanguage: e.target.value })}
+            className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm"
+          >
+            <option value="en">English</option>
+            <option value="bn">Bengali (বাংলা)</option>
+          </select>
+          {settings.transcriptionLanguage !== 'en' && isEnglishOnlyModel(settings.whisperModel) && (
+            <p className="mt-2 text-amber-400 text-xs">
+              English-only models (.en) cannot transcribe Bengali. Please select a multilingual model below.
+            </p>
+          )}
+        </div>
+
         {/* Whisper Model */}
         <div className="bg-slate-800 rounded-lg p-4">
           <h3 className="text-white font-medium mb-2">Whisper Model</h3>
@@ -73,9 +93,16 @@ export function SettingsPage() {
             onChange={e => handleWhisperModelChange(e.target.value)}
             className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm"
           >
-            <option value="ggml-base.en.bin">base.en (148 MB) — Fast, good accuracy</option>
-            <option value="ggml-small.en.bin">small.en (488 MB) — Slower, better accuracy</option>
-            <option value="ggml-medium.en.bin">medium.en (1.5 GB) — Slowest, best accuracy</option>
+            <optgroup label="English-only (smaller, faster)">
+              <option value="ggml-base.en.bin">base.en (148 MB) — Fast, good accuracy</option>
+              <option value="ggml-small.en.bin">small.en (488 MB) — Slower, better accuracy</option>
+              <option value="ggml-medium.en.bin">medium.en (1.5 GB) — Slowest, best accuracy</option>
+            </optgroup>
+            <optgroup label="Multilingual (supports Bengali &amp; others)">
+              <option value="ggml-base.bin">base (148 MB) — Fast, multilingual</option>
+              <option value="ggml-small.bin">small (488 MB) — Better accuracy, multilingual</option>
+              <option value="ggml-medium.bin">medium (1.5 GB) — Best accuracy, multilingual</option>
+            </optgroup>
           </select>
         </div>
 

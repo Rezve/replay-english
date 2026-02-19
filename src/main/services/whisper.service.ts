@@ -69,7 +69,9 @@ export interface TranscriptionSegment {
 
 export async function transcribeWav(
   wavPath: string,
-  modelName: string = 'ggml-base.en.bin'
+  modelName: string = 'ggml-base.en.bin',
+  language: string = 'en',
+  translate: boolean = false
 ): Promise<TranscriptionSegment[]> {
   const binaryPath = getWhisperBinaryPath();
   const modelPath = getModelPath(modelName);
@@ -99,18 +101,21 @@ export async function transcribeWav(
 
   // Run whisper.cpp with JSON output to file
   // Remove file extension to get base path for -of flag
-  const outputBase = wavPath.replace(/\.(wav|mp3|m4a)$/i, '');
+  const outputBase = wavPath.replace(/\.(wav|mp3|m4a)$/i, '') + (translate ? '_tr' : '');
   const jsonPath = `${outputBase}.json`;
 
+  const args = [
+    '-m', modelPath,
+    '-f', wavPath,
+    '-l', language,
+    '-oj',           // output JSON to file
+    '-of', outputBase, // output file base path (without extension)
+    '-np',           // no-prints (suppress console output)
+  ];
+  if (translate) args.push('--translate');
+
   try {
-    await execFileAsync(binaryPath, [
-      '-m', modelPath,
-      '-f', wavPath,
-      '-l', 'en',
-      '-oj',           // output JSON to file
-      '-of', outputBase, // output file base path (without extension)
-      '-np',           // no-prints (suppress console output)
-    ], {
+    await execFileAsync(binaryPath, args, {
       timeout: 600000, // 10 minute timeout per chunk
       maxBuffer: 50 * 1024 * 1024, // 50MB buffer
     });

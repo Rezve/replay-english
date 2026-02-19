@@ -78,6 +78,13 @@ export function runMigrations() {
     );
   `);
 
+  // Migrations for existing databases
+  try {
+    sqlite.exec(`ALTER TABLE transcript_segments ADD COLUMN translated_text TEXT;`);
+  } catch {
+    // Column already exists — ignore
+  }
+
   // Seed error categories if empty
   const count = sqlite.prepare('SELECT COUNT(*) as cnt FROM error_categories').get() as { cnt: number };
   if (count.cnt === 0) {

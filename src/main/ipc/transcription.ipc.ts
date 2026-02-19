@@ -14,12 +14,23 @@ async function getWhisperModel(): Promise<string> {
   return row?.value || DEFAULT_SETTINGS.whisperModel;
 }
 
+async function getTranscriptionLanguage(): Promise<string> {
+  const db = getDb();
+  const row = await db.select().from(schema.settings).where(eq(schema.settings.key, 'transcriptionLanguage')).get();
+  return row?.value || DEFAULT_SETTINGS.transcriptionLanguage;
+}
+
 export function registerTranscriptionHandlers(mainWindow: BrowserWindow) {
   ipcMain.handle(
     IPC_CHANNELS.TRANSCRIBE_CHUNK,
     async (_event, wavPath: string): Promise<TranscriptSegment[]> => {
       const whisperModel = await getWhisperModel();
-      const segments = await transcribeWav(wavPath, whisperModel);
+      const language = await getTranscriptionLanguage();
+      const segments = await transcribeWav(wavPath, whisperModel, language);
+      let translatedSegments: Awaited<ReturnType<typeof transcribeWav>> = [];
+      if (language !== 'en') {
+        translatedSegments = await transcribeWav(wavPath, whisperModel, language, true);
+      }
       return segments.map((seg, index) => ({
         id: uuidv4(),
         meetingId: '',
@@ -28,6 +39,7 @@ export function registerTranscriptionHandlers(mainWindow: BrowserWindow) {
         startTime: seg.startTime,
         endTime: seg.endTime,
         text: seg.text,
+        translatedText: translatedSegments[index]?.text ?? null,
         confidence: seg.confidence,
       }));
     }
@@ -39,6 +51,7 @@ export function registerTranscriptionHandlers(mainWindow: BrowserWindow) {
     async (_event, meetingId: string, chunkPaths: string[]) => {
       const db = getDb();
       const whisperModel = await getWhisperModel();
+      const language = await getTranscriptionLanguage();
       const allSegments: TranscriptSegment[] = [];
       let globalSegmentIndex = 0;
 
@@ -56,10 +69,15 @@ export function registerTranscriptionHandlers(mainWindow: BrowserWindow) {
 
         // Transcribe
         const chunkOffset = chunkIndex * 300; // 5 min offset per chunk
-        const segments = await transcribeWav(wavPath, whisperModel);
+        const segments = await transcribeWav(wavPath, whisperModel, language);
+        let translatedSegments: Awaited<ReturnType<typeof transcribeWav>> = [];
+        if (language !== 'en') {
+          translatedSegments = await transcribeWav(wavPath, whisperModel, language, true);
+        }
 
         // Save segments to DB
-        for (const seg of segments) {
+        for (let i = 0; i < segments.length; i++) {
+          const seg = segments[i];
           const segment: TranscriptSegment = {
             id: uuidv4(),
             meetingId,
@@ -68,6 +86,7 @@ export function registerTranscriptionHandlers(mainWindow: BrowserWindow) {
             startTime: seg.startTime + chunkOffset,
             endTime: seg.endTime + chunkOffset,
             text: seg.text,
+            translatedText: translatedSegments[i]?.text ?? null,
             confidence: seg.confidence,
           };
           await db.insert(schema.transcriptSegments).values(segment);

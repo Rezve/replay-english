@@ -31,6 +31,7 @@ export interface TranscriptSegment {
   startTime: number;
   endTime: number;
   text: string;
+  translatedText?: string | null;
   confidence: number | null;
 }
 
@@ -149,6 +150,7 @@ export interface PrerequisiteStatus {
 export interface AppSettings {
   whisperModel: string;
   ollamaModel: string;
+  transcriptionLanguage: string;
   chunkDurationSeconds: number;
   dataPath: string;
   analysisLineByLine: boolean;

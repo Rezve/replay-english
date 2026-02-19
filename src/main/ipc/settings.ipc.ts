@@ -18,6 +18,7 @@ export function registerSettingsHandlers() {
     return {
       whisperModel: settingsMap['whisperModel'] || DEFAULT_SETTINGS.whisperModel,
       ollamaModel: settingsMap['ollamaModel'] || DEFAULT_SETTINGS.ollamaModel,
+      transcriptionLanguage: settingsMap['transcriptionLanguage'] || DEFAULT_SETTINGS.transcriptionLanguage,
       chunkDurationSeconds: parseInt(settingsMap['chunkDurationSeconds'] || String(DEFAULT_SETTINGS.chunkDurationSeconds), 10),
       dataPath: settingsMap['dataPath'] || '',
       analysisLineByLine: settingsMap['analysisLineByLine'] !== 'false',

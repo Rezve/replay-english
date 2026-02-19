@@ -29,6 +29,7 @@ export const ERROR_CATEGORIES = {
 export const DEFAULT_SETTINGS = {
   whisperModel: 'ggml-base.en.bin',
   ollamaModel: 'qwen2.5:7b',
+  transcriptionLanguage: 'en',
   chunkDurationSeconds: 300,
   dataPath: '',
   analysisLineByLine: true,

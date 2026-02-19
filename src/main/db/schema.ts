@@ -29,6 +29,7 @@ export const transcriptSegments = sqliteTable('transcript_segments', {
   startTime: real('start_time').notNull(),
   endTime: real('end_time').notNull(),
   text: text('text').notNull(),
+  translatedText: text('translated_text'),
   confidence: real('confidence'),
 });
 
