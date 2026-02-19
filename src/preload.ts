@@ -74,6 +74,8 @@ const electronAPI: ElectronAPI = {
   // Context analyses
   runContextAnalyses: (meetingId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.RUN_CONTEXT_ANALYSES, meetingId),
+  runSingleContextAnalysis: (meetingId: string, type: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.RUN_SINGLE_CONTEXT_ANALYSIS, meetingId, type),
 
   // Prerequisites
   checkPrerequisites: () =>

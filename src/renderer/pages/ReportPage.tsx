@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -9,7 +9,6 @@ import {
   Loader2,
   RefreshCw,
   X,
-  Sparkles,
   Play,
   Pause,
   Volume2,
@@ -83,7 +82,6 @@ export function ReportPage() {
   const [progress, setProgress] = useState<ProgressEvent | null>(null);
   const [reanalyzing, setReanalyzing] = useState(false);
   const [activeTab, setActiveTab] = useState<ReportTab>('line-by-line');
-  const [runningInsights, setRunningInsights] = useState(false);
   const processingStartedRef = React.useRef(false);
 
   // Audio player state
@@ -149,18 +147,20 @@ export function ReportPage() {
     }
   };
 
-  const handleRunInsights = async () => {
+  const [runningTab, setRunningTab] = useState<ContextAnalysisType | null>(null);
+
+  const handleRunSingleAnalysis = async (type: ContextAnalysisType) => {
     if (!id) return;
-    setRunningInsights(true);
+    setRunningTab(type);
     try {
-      await api.runContextAnalyses(id);
+      await api.runSingleContextAnalysis(id, type);
       const data = await api.getMeeting(id);
       setMeeting(data);
     } catch (err: any) {
-      console.error('Context analyses failed:', err);
-      alert(`Insights failed: ${err?.message || 'Unknown error'}`);
+      console.error(`Analysis '${type}' failed:`, err);
+      alert(`Analysis failed: ${err?.message || 'Unknown error'}`);
     } finally {
-      setRunningInsights(false);
+      setRunningTab(null);
     }
   };
 
@@ -379,17 +379,7 @@ export function ReportPage() {
     setSelectedMistake(mistakes[newIndex]);
   };
 
-  const availableTabs = useMemo((): ReportTab[] => {
-    const tabs: ReportTab[] = ['line-by-line'];
-    if (!meeting?.analyses) return tabs;
-    const analysisTypes: ContextAnalysisType[] = ['grammar_full', 'summary', 'action_items', 'vocabulary', 'fluency'];
-    for (const type of analysisTypes) {
-      if (meeting.analyses.some(a => a.type === type)) {
-        tabs.push(type);
-      }
-    }
-    return tabs;
-  }, [meeting?.analyses]);
+  const allTabs: ReportTab[] = ['line-by-line', 'grammar_full', 'summary', 'action_items', 'vocabulary', 'fluency'];
 
   if (loading) {
     return (
@@ -411,7 +401,7 @@ export function ReportPage() {
   }
 
   const isProcessing = meeting.status === 'transcribing' || meeting.status === 'analyzing' || reanalyzing;
-  const isRunningContext = runningInsights || (progress?.stage === 'context-analyzing' && progress?.current === 0);
+  const isRunningContext = runningTab !== null || (progress?.stage === 'context-analyzing' && progress?.current === 0);
 
   const getAnalysisContent = <T,>(type: ContextAnalysisType): T | null => {
     const analysis = meeting.analyses?.find(a => a.type === type);
@@ -469,26 +459,6 @@ export function ReportPage() {
                 <Play size={14} />
                 Start Analysis
               </button>
-            )}
-            {(meeting.status === 'completed' || meeting.status === 'failed') && meeting.segments.length > 0 && (
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleRunInsights}
-                  disabled={runningInsights || reanalyzing}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white rounded-lg transition-colors disabled:opacity-50"
-                >
-                  <Sparkles size={14} className={runningInsights ? 'animate-pulse' : ''} />
-                  Re-run Insights
-                </button>
-                <button
-                  onClick={handleReAnalyze}
-                  disabled={reanalyzing || runningInsights}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white rounded-lg transition-colors disabled:opacity-50"
-                >
-                  <RefreshCw size={14} className={reanalyzing ? 'animate-spin' : ''} />
-                  Re-analyze
-                </button>
-              </div>
             )}
           </div>
         </div>
@@ -640,23 +610,21 @@ export function ReportPage() {
       )}
 
       {/* Tab bar */}
-      {availableTabs.length > 1 && (
-        <div className="flex-shrink-0 flex gap-1 mb-4 border-b border-slate-700 pb-0">
-          {availableTabs.map(tab => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`px-3 py-2 text-sm font-medium rounded-t-lg transition-colors ${
-                activeTab === tab
-                  ? 'bg-slate-800 text-white border-b-2 border-blue-500'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
-              }`}
-            >
-              {TAB_LABELS[tab]}
-            </button>
-          ))}
-        </div>
-      )}
+      <div className="flex-shrink-0 flex gap-1 mb-4 border-b border-slate-700 pb-0">
+        {allTabs.map(tab => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`px-3 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+              activeTab === tab
+                ? 'bg-slate-800 text-white border-b-2 border-blue-500'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+            }`}
+          >
+            {TAB_LABELS[tab]}
+          </button>
+        ))}
+      </div>
 
       {/* Main content */}
       <div className="flex-1 flex gap-4 min-h-0">
@@ -664,6 +632,18 @@ export function ReportPage() {
           <>
             {/* Transcript panel */}
             <div className="flex-1 overflow-y-auto pr-2">
+              {(meeting.status === 'completed' || meeting.status === 'failed') && meeting.segments.length > 0 && (
+                <div className="flex justify-end mb-2">
+                  <button
+                    onClick={handleReAnalyze}
+                    disabled={reanalyzing || runningTab !== null}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white rounded-lg transition-colors disabled:opacity-50"
+                  >
+                    {reanalyzing ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                    Re-analyze
+                  </button>
+                </div>
+              )}
               {meeting.segments.length === 0 && !isProcessing && (
                 <div className="text-center py-12">
                   <p className="text-slate-400">No transcript available</p>
@@ -802,9 +782,34 @@ export function ReportPage() {
         {/* Grammar Full tab */}
         {activeTab === 'grammar_full' && (() => {
           const data = getAnalysisContent<GrammarFullResult>('grammar_full');
-          if (!data) return <div className="flex-1 text-center py-12 text-slate-400">No full grammar analysis available</div>;
+          const hasSegments = meeting.segments.length > 0;
+          if (!data) return (
+            <div className="flex-1 flex flex-col items-center justify-center py-12">
+              <p className="text-slate-400 mb-4">No full grammar analysis available</p>
+              {hasSegments && (
+                <button
+                  onClick={() => handleRunSingleAnalysis('grammar_full')}
+                  disabled={runningTab !== null}
+                  className="flex items-center gap-1.5 px-4 py-2 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {runningTab === 'grammar_full' ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
+                  Run Grammar Analysis
+                </button>
+              )}
+            </div>
+          );
           return (
             <div className="flex-1 overflow-y-auto pr-2 space-y-3">
+              <div className="flex justify-end mb-2">
+                <button
+                  onClick={() => handleRunSingleAnalysis('grammar_full')}
+                  disabled={runningTab !== null}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {runningTab === 'grammar_full' ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                  Re-run
+                </button>
+              </div>
               {data.issues.length === 0 ? (
                 <div className="text-center py-12 text-green-400">No grammar issues found with full context analysis</div>
               ) : (
@@ -828,9 +833,34 @@ export function ReportPage() {
         {/* Summary tab */}
         {activeTab === 'summary' && (() => {
           const data = getAnalysisContent<SummaryResult>('summary');
-          if (!data) return <div className="flex-1 text-center py-12 text-slate-400">No summary available</div>;
+          const hasSegments = meeting.segments.length > 0;
+          if (!data) return (
+            <div className="flex-1 flex flex-col items-center justify-center py-12">
+              <p className="text-slate-400 mb-4">No summary available</p>
+              {hasSegments && (
+                <button
+                  onClick={() => handleRunSingleAnalysis('summary')}
+                  disabled={runningTab !== null}
+                  className="flex items-center gap-1.5 px-4 py-2 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {runningTab === 'summary' ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
+                  Run Summary
+                </button>
+              )}
+            </div>
+          );
           return (
             <div className="flex-1 overflow-y-auto pr-2">
+              <div className="flex justify-end mb-2">
+                <button
+                  onClick={() => handleRunSingleAnalysis('summary')}
+                  disabled={runningTab !== null}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {runningTab === 'summary' ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                  Re-run
+                </button>
+              </div>
               <div className="bg-slate-800 rounded-lg p-5">
                 <h3 className="text-white font-medium mb-3">Summary</h3>
                 <p className="text-slate-200 text-sm leading-relaxed mb-5">{data.summary}</p>
@@ -855,9 +885,34 @@ export function ReportPage() {
         {/* Action Items tab */}
         {activeTab === 'action_items' && (() => {
           const data = getAnalysisContent<ActionItemsResult>('action_items');
-          if (!data) return <div className="flex-1 text-center py-12 text-slate-400">No action items available</div>;
+          const hasSegments = meeting.segments.length > 0;
+          if (!data) return (
+            <div className="flex-1 flex flex-col items-center justify-center py-12">
+              <p className="text-slate-400 mb-4">No action items available</p>
+              {hasSegments && (
+                <button
+                  onClick={() => handleRunSingleAnalysis('action_items')}
+                  disabled={runningTab !== null}
+                  className="flex items-center gap-1.5 px-4 py-2 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {runningTab === 'action_items' ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
+                  Run Action Items
+                </button>
+              )}
+            </div>
+          );
           return (
             <div className="flex-1 overflow-y-auto pr-2">
+              <div className="flex justify-end mb-2">
+                <button
+                  onClick={() => handleRunSingleAnalysis('action_items')}
+                  disabled={runningTab !== null}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {runningTab === 'action_items' ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                  Re-run
+                </button>
+              </div>
               {data.items.length === 0 ? (
                 <div className="text-center py-12 text-slate-400">No action items found in this conversation</div>
               ) : (
@@ -887,9 +942,34 @@ export function ReportPage() {
         {/* Vocabulary tab */}
         {activeTab === 'vocabulary' && (() => {
           const data = getAnalysisContent<VocabularyResult>('vocabulary');
-          if (!data) return <div className="flex-1 text-center py-12 text-slate-400">No vocabulary suggestions available</div>;
+          const hasSegments = meeting.segments.length > 0;
+          if (!data) return (
+            <div className="flex-1 flex flex-col items-center justify-center py-12">
+              <p className="text-slate-400 mb-4">No vocabulary suggestions available</p>
+              {hasSegments && (
+                <button
+                  onClick={() => handleRunSingleAnalysis('vocabulary')}
+                  disabled={runningTab !== null}
+                  className="flex items-center gap-1.5 px-4 py-2 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {runningTab === 'vocabulary' ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
+                  Run Vocabulary Analysis
+                </button>
+              )}
+            </div>
+          );
           return (
             <div className="flex-1 overflow-y-auto pr-2">
+              <div className="flex justify-end mb-2">
+                <button
+                  onClick={() => handleRunSingleAnalysis('vocabulary')}
+                  disabled={runningTab !== null}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {runningTab === 'vocabulary' ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                  Re-run
+                </button>
+              </div>
               {data.suggestions.length === 0 ? (
                 <div className="text-center py-12 text-green-400">No vocabulary improvements suggested</div>
               ) : (
@@ -913,9 +993,34 @@ export function ReportPage() {
         {/* Fluency tab */}
         {activeTab === 'fluency' && (() => {
           const data = getAnalysisContent<FluencyResult>('fluency');
-          if (!data) return <div className="flex-1 text-center py-12 text-slate-400">No fluency analysis available</div>;
+          const hasSegments = meeting.segments.length > 0;
+          if (!data) return (
+            <div className="flex-1 flex flex-col items-center justify-center py-12">
+              <p className="text-slate-400 mb-4">No fluency analysis available</p>
+              {hasSegments && (
+                <button
+                  onClick={() => handleRunSingleAnalysis('fluency')}
+                  disabled={runningTab !== null}
+                  className="flex items-center gap-1.5 px-4 py-2 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {runningTab === 'fluency' ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
+                  Run Fluency Analysis
+                </button>
+              )}
+            </div>
+          );
           return (
             <div className="flex-1 overflow-y-auto pr-2">
+              <div className="flex justify-end mb-2">
+                <button
+                  onClick={() => handleRunSingleAnalysis('fluency')}
+                  disabled={runningTab !== null}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {runningTab === 'fluency' ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                  Re-run
+                </button>
+              </div>
               <div className="bg-slate-800 rounded-lg p-5">
                 <div className="flex items-center gap-8 mb-6">
                   <div className="text-center">

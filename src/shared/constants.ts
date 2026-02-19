@@ -55,6 +55,7 @@ export const IPC_CHANNELS = {
   STOP_ANALYSIS: 'analysis:stop',
   START_ANALYSIS: 'analysis:start',
   RUN_CONTEXT_ANALYSES: 'analysis:run-context-analyses',
+  RUN_SINGLE_CONTEXT_ANALYSIS: 'analysis:run-single-context-analysis',
 
   // Meetings
   CREATE_MEETING: 'meeting:create',

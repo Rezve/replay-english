@@ -319,6 +319,44 @@ export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
     }
   );
 
+  // Run a single context analysis type
+  ipcMain.handle(
+    IPC_CHANNELS.RUN_SINGLE_CONTEXT_ANALYSIS,
+    async (_event, meetingId: string, type: string) => {
+      const db = getDb();
+
+      const segments = await db.select().from(dbSchema.transcriptSegments)
+        .where(eq(dbSchema.transcriptSegments.meetingId, meetingId))
+        .orderBy(dbSchema.transcriptSegments.segmentIndex)
+        .all();
+
+      if (segments.length === 0) {
+        throw new Error('No transcript segments found.');
+      }
+
+      const settingsMap = await getSettingsMap();
+      const ollamaModel = settingsMap['ollamaModel'] || DEFAULT_SETTINGS.ollamaModel;
+      const validType = type as import('../../shared/types').ContextAnalysisType;
+
+      const results = await runContextAnalyses(
+        meetingId,
+        segments,
+        ollamaModel,
+        [validType],
+        (_t, done) => {
+          mainWindow.webContents.send(IPC_CHANNELS.PROGRESS, {
+            stage: 'context-analyzing',
+            current: done ? 1 : 0,
+            total: 1,
+            message: done ? `${validType} complete` : `Running ${validType}...`,
+          });
+        }
+      );
+
+      return results[0] || null;
+    }
+  );
+
   // Stop ongoing analysis — sets cancellation flag and updates status to 'transcribed'
   ipcMain.handle(
     IPC_CHANNELS.STOP_ANALYSIS,

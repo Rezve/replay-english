@@ -246,6 +246,7 @@ export interface ElectronAPI {
 
   // Context analyses
   runContextAnalyses(meetingId: string): Promise<MeetingAnalysis[]>;
+  runSingleContextAnalysis(meetingId: string, type: ContextAnalysisType): Promise<MeetingAnalysis | null>;
 
   // Events
   onProgress(callback: (event: ProgressEvent) => void): () => void;
