@@ -13,6 +13,7 @@ import {
   Pause,
   Volume2,
   Square,
+  Download,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import type {
@@ -113,6 +114,24 @@ export function ReportPage() {
     } finally {
       setReanalyzing(false);
     }
+  };
+
+  const handleExportTranscript = () => {
+    if (!meeting || meeting.segments.length === 0) return;
+    const date = new Date(meeting.startedAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+    const lines = [
+      meeting.title,
+      date,
+      '',
+      ...meeting.segments.map(s => `[${formatTime(s.startTime)}] ${s.text}`),
+    ];
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${meeting.title.replace(/[^a-z0-9]/gi, '_')}_transcript.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const handleStopAnalysis = async () => {
@@ -632,16 +651,25 @@ export function ReportPage() {
           <>
             {/* Transcript panel */}
             <div className="flex-1 overflow-y-auto pr-2">
-              {(meeting.status === 'completed' || meeting.status === 'failed') && meeting.segments.length > 0 && (
-                <div className="flex justify-end mb-2">
+              {meeting.segments.length > 0 && (
+                <div className="flex justify-end gap-2 mb-2">
                   <button
-                    onClick={handleReAnalyze}
-                    disabled={reanalyzing || runningTab !== null}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white rounded-lg transition-colors disabled:opacity-50"
+                    onClick={handleExportTranscript}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white rounded-lg transition-colors"
                   >
-                    {reanalyzing ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
-                    Re-analyze
+                    <Download size={12} />
+                    Export Transcript
                   </button>
+                  {(meeting.status === 'completed' || meeting.status === 'failed') && (
+                    <button
+                      onClick={handleReAnalyze}
+                      disabled={reanalyzing || runningTab !== null}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white rounded-lg transition-colors disabled:opacity-50"
+                    >
+                      {reanalyzing ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                      Re-analyze
+                    </button>
+                  )}
                 </div>
               )}
               {meeting.segments.length === 0 && !isProcessing && (
