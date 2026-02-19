@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate, useBlocker } from 'react-router-dom';
-import { Mic, Square, Loader2 } from 'lucide-react';
+import { Mic, MicOff, Square, Loader2 } from 'lucide-react';
 import { api } from '../lib/api';
 import type { Meeting, Profile, AppSettings } from '../../shared/types';
 
@@ -28,6 +28,7 @@ export function RecordingPage() {
   const [availableMics, setAvailableMics] = useState<MediaDeviceInfo[]>([]);
   const [captureDesktop, setCaptureDesktop] = useState(true);
   const [chunkDurationMs, setChunkDurationMs] = useState(300000);
+  const [isMuted, setIsMuted] = useState(false);
 
   const blocker = useBlocker(state === 'recording');
 
@@ -43,6 +44,7 @@ export function RecordingPage() {
   const chunkIndexRef = useRef(0);
   const micChunkIndexRef = useRef(0);
   const chunkRotationRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const isMutedRef = useRef(false);
 
   useEffect(() => {
     api.listProfiles().then(setProfiles).catch(console.error);
@@ -76,6 +78,33 @@ export function RecordingPage() {
     setAudioLevel(avg / 255);
     animFrameRef.current = requestAnimationFrame(updateAudioLevel);
   }, []);
+
+  const toggleMute = useCallback(() => {
+    if (!micStreamRef.current) return;
+    const newMuted = !isMuted;
+    isMutedRef.current = newMuted;
+    // Pause/resume the recorders — pausing stops data capture entirely (no silent chunks stored)
+    if (newMuted) {
+      micRecorderRef.current?.pause();
+      mediaRecorderRef.current?.pause();
+    } else {
+      micRecorderRef.current?.resume();
+      mediaRecorderRef.current?.resume();
+    }
+    setIsMuted(newMuted);
+  }, [isMuted]);
+
+  // Keyboard shortcut: M to toggle mute during recording
+  useEffect(() => {
+    if (state !== 'recording') return;
+    const handleKey = (e: KeyboardEvent) => {
+      if ((e.key === 'm' || e.key === 'M') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        toggleMute();
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [state, toggleMute]);
 
   const startRecording = async () => {
     try {
@@ -181,23 +210,28 @@ export function RecordingPage() {
       micRecorderRef.current.start();
 
       // Rotate recorders every 5 minutes: stop (finalizes current chunk) → start new
+      // Handles 'paused' state too so rotation works even when user is muted
       chunkRotationRef.current = setInterval(() => {
-        if (mediaRecorderRef.current?.state === 'recording') {
-          mediaRecorderRef.current.stop();
+        const mixedState = mediaRecorderRef.current?.state;
+        if (mixedState === 'recording' || mixedState === 'paused') {
+          mediaRecorderRef.current!.stop();
           mediaRecorderRef.current = createMixedRecorder();
           mediaRecorderRef.current.start();
+          if (isMutedRef.current) mediaRecorderRef.current.pause();
         }
-        if (micRecorderRef.current?.state === 'recording') {
-          micRecorderRef.current.stop();
+        const micState = micRecorderRef.current?.state;
+        if (micState === 'recording' || micState === 'paused') {
+          micRecorderRef.current!.stop();
           micRecorderRef.current = createMicRecorder();
           micRecorderRef.current.start();
+          if (isMutedRef.current) micRecorderRef.current.pause();
         }
       }, chunkDurationMs);
 
-      // Start timer
+      // Start timer — skips incrementing while muted so it shows actual recorded time
       setElapsed(0);
       timerRef.current = setInterval(() => {
-        setElapsed(prev => prev + 1);
+        if (!isMutedRef.current) setElapsed(prev => prev + 1);
       }, 1000);
 
       setState('recording');
@@ -224,6 +258,12 @@ export function RecordingPage() {
     if (micRecorderRef.current && micRecorderRef.current.state !== 'inactive') {
       micRecorderRef.current.stop();
     }
+
+    // Resume recorders if paused so stop() finalizes the last chunk correctly
+    if (micRecorderRef.current?.state === 'paused') micRecorderRef.current.resume();
+    if (mediaRecorderRef.current?.state === 'paused') mediaRecorderRef.current.resume();
+    isMutedRef.current = false;
+    setIsMuted(false);
 
     // Stop all stream tracks
     if (streamRef.current) {
@@ -377,6 +417,22 @@ export function RecordingPage() {
           </button>
         </div>
 
+        {/* Mute toggle — only visible while recording */}
+        {state === 'recording' && (
+          <button
+            onClick={toggleMute}
+            title={isMuted ? 'Unmute mic (M)' : 'Mute mic when muted in Teams/Zoom (M)'}
+            className={`flex items-center gap-2 mx-auto px-5 py-2.5 rounded-full text-sm font-medium transition-all ${
+              isMuted
+                ? 'bg-orange-500 hover:bg-orange-600 text-white'
+                : 'bg-slate-700 hover:bg-slate-600 text-slate-300'
+            }`}
+          >
+            {isMuted ? <MicOff size={16} /> : <Mic size={16} />}
+            {isMuted ? 'Muted (click to unmute)' : 'Mute mic'}
+          </button>
+        )}
+
         {/* Status */}
         {state === 'idle' && (
           <div>
@@ -391,9 +447,9 @@ export function RecordingPage() {
         {state === 'recording' && (
           <div>
             <p className="text-3xl font-mono text-white font-bold">{formatTimer(elapsed)}</p>
-            <p className="text-red-400 mt-2 flex items-center justify-center gap-2">
-              <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-              Recording microphone{captureDesktop && ' + desktop audio'}
+            <p className={`mt-2 flex items-center justify-center gap-2 ${isMuted ? 'text-orange-400' : 'text-red-400'}`}>
+              <span className={`w-2 h-2 rounded-full animate-pulse ${isMuted ? 'bg-orange-500' : 'bg-red-500'}`} />
+              {isMuted ? 'Mic muted — not recording your voice' : `Recording microphone${captureDesktop ? ' + desktop audio' : ''}`}
             </p>
             <p className="text-slate-500 text-sm mt-1">
               {chunkCount} chunk{chunkCount !== 1 ? 's' : ''} saved
