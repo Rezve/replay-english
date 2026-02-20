@@ -68,12 +68,12 @@ export function SettingsPage() {
 
       <div className="space-y-6 max-w-2xl">
         {/* Transcription Language */}
-        <div className="bg-slate-800 rounded-lg p-4">
+        <div className="bg-navy-800 rounded-lg p-4">
           <h3 className="text-white font-medium mb-2">Transcription Language</h3>
           <select
             value={settings.transcriptionLanguage}
             onChange={e => persistSettings({ ...settings, transcriptionLanguage: e.target.value })}
-            className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm"
+            className="w-full px-3 py-2 bg-navy-900 border border-navy-700 rounded-lg text-white text-sm"
           >
             <option value="en">English</option>
             <option value="bn">Bengali (বাংলা)</option>
@@ -86,12 +86,12 @@ export function SettingsPage() {
         </div>
 
         {/* Whisper Model */}
-        <div className="bg-slate-800 rounded-lg p-4">
+        <div className="bg-navy-800 rounded-lg p-4">
           <h3 className="text-white font-medium mb-2">Whisper Model</h3>
           <select
             value={settings.whisperModel}
             onChange={e => handleWhisperModelChange(e.target.value)}
-            className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm"
+            className="w-full px-3 py-2 bg-navy-900 border border-navy-700 rounded-lg text-white text-sm"
           >
             <optgroup label="English-only (smaller, faster)">
               <option value="ggml-base.en.bin">base.en (148 MB) — Fast, good accuracy</option>
@@ -107,12 +107,12 @@ export function SettingsPage() {
         </div>
 
         {/* Ollama Model */}
-        <div className="bg-slate-800 rounded-lg p-4">
+        <div className="bg-navy-800 rounded-lg p-4">
           <h3 className="text-white font-medium mb-2">Ollama Model</h3>
           <select
             value={settings.ollamaModel}
             onChange={e => handleOllamaModelChange(e.target.value)}
-            className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm"
+            className="w-full px-3 py-2 bg-navy-900 border border-navy-700 rounded-lg text-white text-sm"
           >
             <option value="qwen2.5:7b">qwen2.5:7b — Recommended (7B params)</option>
             <option value="phi3:3.8b">phi3:3.8b — Lightweight (3.8B params)</option>
@@ -121,12 +121,12 @@ export function SettingsPage() {
         </div>
 
         {/* Chunk Duration */}
-        <div className="bg-slate-800 rounded-lg p-4">
+        <div className="bg-navy-800 rounded-lg p-4">
           <h3 className="text-white font-medium mb-2">Audio Chunk Duration</h3>
           <select
             value={settings.chunkDurationSeconds}
             onChange={e => persistSettings({ ...settings, chunkDurationSeconds: parseInt(e.target.value) })}
-            className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm"
+            className="w-full px-3 py-2 bg-navy-900 border border-navy-700 rounded-lg text-white text-sm"
           >
             <option value="180">3 minutes</option>
             <option value="300">5 minutes (recommended)</option>
@@ -135,7 +135,7 @@ export function SettingsPage() {
         </div>
 
         {/* Grammar Check Mode */}
-        <div className="bg-slate-800 rounded-lg p-4">
+        <div className="bg-navy-800 rounded-lg p-4">
           <h3 className="text-white font-medium mb-1">Grammar Check Mode</h3>
           <p className="text-slate-400 text-xs mb-3">
             Controls how strictly grammar is evaluated during analysis.
@@ -146,7 +146,7 @@ export function SettingsPage() {
               className={`flex-1 px-4 py-2.5 rounded-lg text-sm transition-colors border text-left ${
                 settings.grammarMode === 'professional'
                   ? 'bg-blue-600 border-blue-500 text-white'
-                  : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-slate-600 hover:text-slate-300'
+                  : 'bg-navy-900 border-navy-700 text-slate-400 hover:border-navy-600 hover:text-slate-300'
               }`}
             >
               <div className="font-semibold">Professional</div>
@@ -157,7 +157,7 @@ export function SettingsPage() {
               className={`flex-1 px-4 py-2.5 rounded-lg text-sm transition-colors border text-left ${
                 settings.grammarMode === 'conversational'
                   ? 'bg-blue-600 border-blue-500 text-white'
-                  : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-slate-600 hover:text-slate-300'
+                  : 'bg-navy-900 border-navy-700 text-slate-400 hover:border-navy-600 hover:text-slate-300'
               }`}
             >
               <div className="font-semibold">Conversational</div>
@@ -167,7 +167,7 @@ export function SettingsPage() {
         </div>
 
         {/* Analysis Types */}
-        <div className="bg-slate-800 rounded-lg p-4">
+        <div className="bg-navy-800 rounded-lg p-4">
           <h3 className="text-white font-medium mb-1">Analysis Types</h3>
           <p className="text-slate-400 text-xs mb-4">
             Choose which analyses to run after transcription.
@@ -198,14 +198,14 @@ export function SettingsPage() {
         </div>
 
         {/* Prerequisites check */}
-        <div className="bg-slate-800 rounded-lg p-4">
+        <div className="bg-navy-800 rounded-lg p-4">
           <h3 className="text-white font-medium mb-2 flex items-center gap-2">
             <Shield size={16} className="text-blue-400" />
             System Check
           </h3>
           <button
             onClick={() => navigate('/setup')}
-            className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm transition-colors"
+            className="px-4 py-2 bg-navy-700 hover:bg-navy-600 text-white rounded-lg text-sm transition-colors"
           >
             Check Prerequisites
           </button>

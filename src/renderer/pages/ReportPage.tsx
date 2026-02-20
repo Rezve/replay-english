@@ -454,7 +454,7 @@ export function ReportPage() {
               <span>{new Date(meeting.startedAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</span>
               <span className="flex items-center gap-1"><Clock size={14} />{formatDuration(meeting.durationSeconds)}</span>
               {meeting.profile && (
-                <span className="px-2 py-0.5 bg-slate-700 rounded text-xs">{meeting.profile.name}</span>
+                <span className="px-2 py-0.5 bg-navy-700 rounded text-xs">{meeting.profile.name}</span>
               )}
             </div>
           </div>
@@ -514,7 +514,7 @@ export function ReportPage() {
             <ChevronRight size={14} className={`transition-transform ${audioExpanded ? 'rotate-90' : ''}`} />
           </button>
           {audioExpanded && (
-            <div className="bg-slate-800 rounded-lg p-3">
+            <div className="bg-navy-800 rounded-lg p-3">
               <audio
                 ref={audioRef}
                 src={audioBlobUrls[currentChunkIdx]}
@@ -533,7 +533,7 @@ export function ReportPage() {
                 </button>
                 <span className="text-xs text-slate-400 font-mono w-10">{formatTime(audioCurrentTime)}</span>
                 <div
-                  className="flex-1 h-1.5 bg-slate-700 rounded-full cursor-pointer relative"
+                  className="flex-1 h-1.5 bg-navy-700 rounded-full cursor-pointer relative"
                   onClick={handleSeek}
                 >
                   <div
@@ -567,7 +567,7 @@ export function ReportPage() {
                       className={`px-2 py-0.5 text-xs rounded transition-colors ${
                         i === currentChunkIdx
                           ? 'bg-blue-500 text-white'
-                          : 'bg-slate-700 text-slate-400 hover:bg-slate-600'
+                          : 'bg-navy-700 text-slate-400 hover:bg-navy-600'
                       }`}
                     >
                       {i + 1}
@@ -640,8 +640,8 @@ export function ReportPage() {
             onClick={() => setActiveTab(tab)}
             className={`px-3 py-2 text-sm font-medium rounded-t-lg transition-colors ${
               activeTab === tab
-                ? 'bg-slate-800 text-white border-b-2 border-blue-500'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                ? 'bg-navy-800 text-white border-b-2 border-blue-500'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-navy-800/50'
             }`}
           >
             {TAB_LABELS[tab]}
@@ -659,7 +659,7 @@ export function ReportPage() {
                 <div className="flex justify-end gap-2 mb-2">
                   <button
                     onClick={handleExportTranscript}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white rounded-lg transition-colors"
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-navy-700 hover:bg-navy-600 text-slate-300 hover:text-white rounded-lg transition-colors"
                   >
                     <Download size={12} />
                     Export Transcript
@@ -668,7 +668,7 @@ export function ReportPage() {
                     <button
                       onClick={handleReAnalyze}
                       disabled={reanalyzing || runningTab !== null}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white rounded-lg transition-colors disabled:opacity-50"
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-navy-700 hover:bg-navy-600 text-slate-300 hover:text-white rounded-lg transition-colors disabled:opacity-50"
                     >
                       {reanalyzing ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
                       Re-analyze
@@ -689,8 +689,8 @@ export function ReportPage() {
                     <div
                       key={segment.id}
                       className={`flex gap-3 p-2 rounded transition-colors ${
-                        hasMistakes ? 'hover:bg-slate-800 cursor-pointer' : ''
-                      } ${selectedMistake && segMistakes.some(m => m.id === selectedMistake.id) ? 'bg-slate-800' : ''}`}
+                        hasMistakes ? 'hover:bg-navy-800 cursor-pointer' : ''
+                      } ${selectedMistake && segMistakes.some(m => m.id === selectedMistake.id) ? 'bg-navy-800' : ''}`}
                       onClick={() => {
                         if (segMistakes.length > 0) {
                           setSelectedMistake(segMistakes[0]);
@@ -841,7 +841,7 @@ export function ReportPage() {
                 <button
                   onClick={() => handleRunSingleAnalysis('grammar_full')}
                   disabled={runningTab !== null}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white rounded-lg transition-colors disabled:opacity-50"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-navy-700 hover:bg-navy-600 text-slate-300 hover:text-white rounded-lg transition-colors disabled:opacity-50"
                 >
                   {runningTab === 'grammar_full' ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
                   Re-run
@@ -892,13 +892,13 @@ export function ReportPage() {
                 <button
                   onClick={() => handleRunSingleAnalysis('summary')}
                   disabled={runningTab !== null}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white rounded-lg transition-colors disabled:opacity-50"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-navy-700 hover:bg-navy-600 text-slate-300 hover:text-white rounded-lg transition-colors disabled:opacity-50"
                 >
                   {runningTab === 'summary' ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
                   Re-run
                 </button>
               </div>
-              <div className="bg-slate-800 rounded-lg p-5">
+              <div className="bg-navy-800 rounded-lg p-5">
                 <h3 className="text-white font-medium mb-3">Summary</h3>
                 <p className="text-slate-200 text-sm leading-relaxed mb-5">{data.summary}</p>
                 {data.keyPoints.length > 0 && (
@@ -944,7 +944,7 @@ export function ReportPage() {
                 <button
                   onClick={() => handleRunSingleAnalysis('action_items')}
                   disabled={runningTab !== null}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white rounded-lg transition-colors disabled:opacity-50"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-navy-700 hover:bg-navy-600 text-slate-300 hover:text-white rounded-lg transition-colors disabled:opacity-50"
                 >
                   {runningTab === 'action_items' ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
                   Re-run
@@ -955,7 +955,7 @@ export function ReportPage() {
               ) : (
                 <div className="space-y-3">
                   {data.items.map((item, i) => (
-                    <div key={i} className="bg-slate-800 rounded-lg p-4 flex items-start gap-3">
+                    <div key={i} className="bg-navy-800 rounded-lg p-4 flex items-start gap-3">
                       <div className="w-5 h-5 rounded border-2 border-slate-600 flex-shrink-0 mt-0.5" />
                       <div>
                         <p className="text-white text-sm">{item.task}</p>
@@ -1001,7 +1001,7 @@ export function ReportPage() {
                 <button
                   onClick={() => handleRunSingleAnalysis('vocabulary')}
                   disabled={runningTab !== null}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white rounded-lg transition-colors disabled:opacity-50"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-navy-700 hover:bg-navy-600 text-slate-300 hover:text-white rounded-lg transition-colors disabled:opacity-50"
                 >
                   {runningTab === 'vocabulary' ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
                   Re-run
@@ -1012,7 +1012,7 @@ export function ReportPage() {
               ) : (
                 <div className="space-y-3">
                   {data.suggestions.map((sug, i) => (
-                    <div key={i} className="bg-slate-800 rounded-lg p-4">
+                    <div key={i} className="bg-navy-800 rounded-lg p-4">
                       <div className="flex items-center gap-3 mb-2">
                         <span className="text-orange-300 text-sm">{sug.original}</span>
                         <span className="text-slate-500">→</span>
@@ -1052,13 +1052,13 @@ export function ReportPage() {
                 <button
                   onClick={() => handleRunSingleAnalysis('fluency')}
                   disabled={runningTab !== null}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white rounded-lg transition-colors disabled:opacity-50"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-navy-700 hover:bg-navy-600 text-slate-300 hover:text-white rounded-lg transition-colors disabled:opacity-50"
                 >
                   {runningTab === 'fluency' ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
                   Re-run
                 </button>
               </div>
-              <div className="bg-slate-800 rounded-lg p-5">
+              <div className="bg-navy-800 rounded-lg p-5">
                 <div className="flex items-center gap-8 mb-6">
                   <div className="text-center">
                     <p className="text-4xl font-bold text-white">{data.score}</p>

@@ -334,7 +334,7 @@ export function RecordingPage() {
               value={title}
               onChange={e => setTitle(e.target.value)}
               placeholder={getDefaultTitle()}
-              className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+              className="w-full px-4 py-3 bg-navy-800 border border-navy-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
             />
 
             {/* Microphone selection */}
@@ -344,7 +344,7 @@ export function RecordingPage() {
                 <select
                   value={selectedMicId}
                   onChange={e => setSelectedMicId(e.target.value)}
-                  className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                  className="w-full px-4 py-3 bg-navy-800 border border-navy-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
                 >
                   {availableMics.map(mic => (
                     <option key={mic.deviceId} value={mic.deviceId}>
@@ -356,7 +356,7 @@ export function RecordingPage() {
             )}
 
             {/* Desktop audio capture option */}
-            <div className="flex items-center gap-3 px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg">
+            <div className="flex items-center gap-3 px-4 py-3 bg-navy-800 border border-navy-700 rounded-lg">
               <input
                 type="checkbox"
                 id="captureDesktop"
@@ -379,7 +379,7 @@ export function RecordingPage() {
                 <select
                   value={selectedProfileId}
                   onChange={e => setSelectedProfileId(e.target.value)}
-                  className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                  className="w-full px-4 py-3 bg-navy-800 border border-navy-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
                 >
                   <option value="">No profile</option>
                   {profiles.map(p => (
@@ -425,7 +425,7 @@ export function RecordingPage() {
             className={`flex items-center gap-2 mx-auto px-5 py-2.5 rounded-full text-sm font-medium transition-all ${
               isMuted
                 ? 'bg-orange-500 hover:bg-orange-600 text-white'
-                : 'bg-slate-700 hover:bg-slate-600 text-slate-300'
+                : 'bg-navy-700 hover:bg-navy-600 text-slate-300'
             }`}
           >
             {isMuted ? <MicOff size={16} /> : <Mic size={16} />}
@@ -461,7 +461,7 @@ export function RecordingPage() {
       {/* Navigation guard modal */}
       {blocker.state === 'blocked' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 max-w-sm w-full mx-4 shadow-2xl">
+          <div className="bg-navy-800 border border-navy-700 rounded-xl p-6 max-w-sm w-full mx-4 shadow-2xl">
             <h3 className="text-lg font-semibold text-white mb-2">Stop recording?</h3>
             <p className="text-slate-400 text-sm mb-6">
               A recording is in progress. If you leave this page, the current recording will be lost.
@@ -469,7 +469,7 @@ export function RecordingPage() {
             <div className="flex gap-3 justify-end">
               <button
                 onClick={() => blocker.reset()}
-                className="px-4 py-2 rounded-lg bg-slate-700 text-white hover:bg-slate-600 transition-colors"
+                className="px-4 py-2 rounded-lg bg-navy-700 text-white hover:bg-navy-600 transition-colors"
               >
                 Stay
               </button>

@@ -86,6 +86,12 @@ export const IPC_CHANNELS = {
   PULL_OLLAMA_MODEL: 'prerequisites:pull-ollama-model',
   CHECK_GPU: 'prerequisites:check-gpu',
 
+  // Window controls
+  WINDOW_MINIMIZE: 'window:minimize',
+  WINDOW_MAXIMIZE: 'window:maximize',
+  WINDOW_CLOSE: 'window:close',
+  WINDOW_IS_MAXIMIZED: 'window:is-maximized',
+
   // Events
   PROGRESS: 'event:progress',
   DOWNLOAD_PROGRESS: 'event:download-progress',

@@ -74,7 +74,7 @@ export function SystemCheckModal({ whisperModel, ollamaModel, onClose }: SystemC
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="bg-slate-800 rounded-xl shadow-2xl w-full max-w-md mx-4 p-6">
+      <div className="bg-navy-800 rounded-xl shadow-2xl w-full max-w-md mx-4 p-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-white">Model Status</h3>
           <button
@@ -102,7 +102,7 @@ export function SystemCheckModal({ whisperModel, ollamaModel, onClose }: SystemC
         {status && (
           <div className="space-y-4">
             {/* Whisper Model */}
-            <div className={`rounded-lg p-4 ${status.whisperModel.available ? 'bg-slate-700/50' : 'bg-red-500/5 border border-red-500/20'}`}>
+            <div className={`rounded-lg p-4 ${status.whisperModel.available ? 'bg-navy-700/50' : 'bg-red-500/5 border border-red-500/20'}`}>
               <div className="flex items-center gap-2 mb-1">
                 {status.whisperModel.available
                   ? <CheckCircle size={18} className="text-green-500" />
@@ -123,7 +123,7 @@ export function SystemCheckModal({ whisperModel, ollamaModel, onClose }: SystemC
                           : 'Starting download...'
                         }
                       </p>
-                      <div className="w-full bg-slate-700 rounded-full h-1.5">
+                      <div className="w-full bg-navy-700 rounded-full h-1.5">
                         <div
                           className="bg-blue-500 h-1.5 rounded-full transition-all duration-300"
                           style={{ width: `${downloadProgress?.percentage || 0}%` }}
@@ -144,7 +144,7 @@ export function SystemCheckModal({ whisperModel, ollamaModel, onClose }: SystemC
             </div>
 
             {/* Ollama Model */}
-            <div className={`rounded-lg p-4 ${status.ollamaModel.available ? 'bg-slate-700/50' : 'bg-red-500/5 border border-red-500/20'}`}>
+            <div className={`rounded-lg p-4 ${status.ollamaModel.available ? 'bg-navy-700/50' : 'bg-red-500/5 border border-red-500/20'}`}>
               <div className="flex items-center gap-2 mb-1">
                 {status.ollamaModel.available
                   ? <CheckCircle size={18} className="text-green-500" />
@@ -188,7 +188,7 @@ export function SystemCheckModal({ whisperModel, ollamaModel, onClose }: SystemC
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
               allReady
                 ? 'bg-green-600 hover:bg-green-700 text-white'
-                : 'bg-slate-700 hover:bg-slate-600 text-white'
+                : 'bg-navy-700 hover:bg-navy-600 text-white'
             } disabled:opacity-50 disabled:cursor-not-allowed`}
           >
             {allReady ? 'All Ready' : 'Close'}

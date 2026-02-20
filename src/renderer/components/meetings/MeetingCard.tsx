@@ -39,7 +39,7 @@ export function MeetingCard({ meeting, profileColor, onDelete, onClick }: Meetin
   return (
     <div
       onClick={() => onClick(meeting.id)}
-      className="bg-slate-800 hover:bg-slate-750 rounded-lg p-4 cursor-pointer transition-colors border border-slate-700 hover:border-slate-600"
+      className="bg-navy-800 hover:bg-navy-700 rounded-lg p-4 cursor-pointer transition-colors border border-navy-700 hover:border-navy-600"
     >
       <div className="flex items-center justify-between">
         <div className="flex-1 min-w-0">

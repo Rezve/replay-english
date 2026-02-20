@@ -251,6 +251,12 @@ export interface ElectronAPI {
   runContextAnalyses(meetingId: string): Promise<MeetingAnalysis[]>;
   runSingleContextAnalysis(meetingId: string, type: ContextAnalysisType): Promise<MeetingAnalysis | null>;
 
+  // Window controls
+  windowMinimize(): Promise<void>;
+  windowMaximize(): Promise<void>;
+  windowClose(): Promise<void>;
+  windowIsMaximized(): Promise<boolean>;
+
   // Events
   onProgress(callback: (event: ProgressEvent) => void): () => void;
   onDownloadProgress(callback: (event: DownloadProgressEvent) => void): () => void;

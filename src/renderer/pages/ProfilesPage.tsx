@@ -68,14 +68,14 @@ export function ProfilesPage() {
 
       {/* Create form */}
       {showCreate && (
-        <div className="bg-slate-800 border border-slate-700 rounded-lg p-4 mb-4">
+        <div className="bg-navy-800 border border-navy-700 rounded-lg p-4 mb-4">
           <div className="flex items-center gap-3">
             <input
               type="text"
               value={newName}
               onChange={e => setNewName(e.target.value)}
               placeholder="Profile name (e.g., Acme Corp Weekly)"
-              className="flex-1 px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 text-sm"
+              className="flex-1 px-3 py-2 bg-navy-900 border border-navy-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 text-sm"
               autoFocus
               onKeyDown={e => e.key === 'Enter' && handleCreate()}
             />
@@ -110,7 +110,7 @@ export function ProfilesPage() {
 
       {profiles.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center">
-          <div className="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center mb-4">
+          <div className="w-16 h-16 rounded-full bg-navy-800 flex items-center justify-center mb-4">
             <Users size={28} className="text-slate-500" />
           </div>
           <p className="text-slate-400">No profiles created yet</p>
@@ -123,7 +123,7 @@ export function ProfilesPage() {
           {profiles.map(profile => (
             <div
               key={profile.id}
-              className="bg-slate-800 border border-slate-700 rounded-lg p-4 flex items-center justify-between"
+              className="bg-navy-800 border border-navy-700 rounded-lg p-4 flex items-center justify-between"
             >
               <div className="flex items-center gap-3">
                 <div

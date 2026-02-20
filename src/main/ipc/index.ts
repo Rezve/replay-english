@@ -5,6 +5,7 @@ import { registerAudioHandlers } from './audio.ipc';
 import { registerTranscriptionHandlers } from './transcription.ipc';
 import { registerAnalysisHandlers } from './analysis.ipc';
 import { registerPrerequisitesHandlers } from './prerequisites.ipc';
+import { registerWindowHandlers } from './window.ipc';
 
 export function registerAllIpcHandlers(mainWindow: BrowserWindow): void {
   registerDatabaseHandlers();
@@ -13,4 +14,5 @@ export function registerAllIpcHandlers(mainWindow: BrowserWindow): void {
   registerTranscriptionHandlers(mainWindow);
   registerAnalysisHandlers(mainWindow);
   registerPrerequisitesHandlers(mainWindow);
+  registerWindowHandlers(mainWindow);
 }

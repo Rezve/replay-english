@@ -46,7 +46,7 @@ export function DashboardPage() {
       <div>
         <h2 className="text-2xl font-bold text-white mb-6">Dashboard</h2>
         <div className="flex flex-col items-center justify-center py-20 text-center">
-          <div className="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center mb-4">
+          <div className="w-16 h-16 rounded-full bg-navy-800 flex items-center justify-center mb-4">
             <BarChart3 size={28} className="text-slate-500" />
           </div>
           <p className="text-slate-400">No analytics data yet</p>
@@ -68,7 +68,7 @@ export function DashboardPage() {
             <select
               value={profileId}
               onChange={e => setProfileId(e.target.value)}
-              className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm"
+              className="px-3 py-1.5 bg-navy-800 border border-navy-700 rounded-lg text-white text-sm"
             >
               <option value="">All profiles</option>
               {profiles.map(p => (
@@ -76,7 +76,7 @@ export function DashboardPage() {
               ))}
             </select>
           )}
-          <div className="flex bg-slate-800 rounded-lg p-0.5">
+          <div className="flex bg-navy-800 rounded-lg p-0.5">
             {timeRanges.map(tr => (
               <button
                 key={tr.value}
@@ -94,19 +94,19 @@ export function DashboardPage() {
 
       {/* Summary cards */}
       <div className="grid grid-cols-4 gap-4">
-        <div className="bg-slate-800 rounded-lg p-4">
+        <div className="bg-navy-800 rounded-lg p-4">
           <p className="text-slate-400 text-xs mb-1">Total Meetings</p>
           <p className="text-2xl font-bold text-white">{data.totalMeetings}</p>
         </div>
-        <div className="bg-slate-800 rounded-lg p-4">
+        <div className="bg-navy-800 rounded-lg p-4">
           <p className="text-slate-400 text-xs mb-1">Avg Mistakes/Meeting</p>
           <p className="text-2xl font-bold text-orange-400">{data.averageMistakes}</p>
         </div>
-        <div className="bg-slate-800 rounded-lg p-4">
+        <div className="bg-navy-800 rounded-lg p-4">
           <p className="text-slate-400 text-xs mb-1">Average Score</p>
           <p className="text-2xl font-bold text-green-400">{data.averageScore}</p>
         </div>
-        <div className="bg-slate-800 rounded-lg p-4">
+        <div className="bg-navy-800 rounded-lg p-4">
           <p className="text-slate-400 text-xs mb-1">Most Common Issue</p>
           <p className="text-lg font-medium text-white truncate">{data.mostProblematicCategory || '--'}</p>
         </div>
@@ -115,18 +115,18 @@ export function DashboardPage() {
       {/* Charts */}
       <div className="grid grid-cols-2 gap-4">
         {/* Mistakes trend */}
-        <div className="bg-slate-800 rounded-lg p-4">
+        <div className="bg-navy-800 rounded-lg p-4">
           <h3 className="text-white font-medium mb-4 flex items-center gap-2">
             <TrendingDown size={16} className="text-blue-400" />
             Mistakes Over Time
           </h3>
           <ResponsiveContainer width="100%" height={200}>
             <LineChart data={data.mistakesTrend}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+              <CartesianGrid strokeDasharray="3 3" stroke="#162846" />
               <XAxis dataKey="date" tick={{ fill: '#94a3b8', fontSize: 12 }} />
               <YAxis tick={{ fill: '#94a3b8', fontSize: 12 }} />
               <Tooltip
-                contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
+                contentStyle={{ backgroundColor: '#0f1e36', border: '1px solid #162846', borderRadius: '8px' }}
                 labelStyle={{ color: '#e2e8f0' }}
               />
               <Line type="monotone" dataKey="count" stroke="#f97316" strokeWidth={2} dot={{ fill: '#f97316', r: 3 }} />
@@ -135,18 +135,18 @@ export function DashboardPage() {
         </div>
 
         {/* Score trend */}
-        <div className="bg-slate-800 rounded-lg p-4">
+        <div className="bg-navy-800 rounded-lg p-4">
           <h3 className="text-white font-medium mb-4 flex items-center gap-2">
             <TrendingUp size={16} className="text-green-400" />
             Score Over Time
           </h3>
           <ResponsiveContainer width="100%" height={200}>
             <LineChart data={data.mistakesTrend}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+              <CartesianGrid strokeDasharray="3 3" stroke="#162846" />
               <XAxis dataKey="date" tick={{ fill: '#94a3b8', fontSize: 12 }} />
               <YAxis domain={[0, 100]} tick={{ fill: '#94a3b8', fontSize: 12 }} />
               <Tooltip
-                contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
+                contentStyle={{ backgroundColor: '#0f1e36', border: '1px solid #162846', borderRadius: '8px' }}
                 labelStyle={{ color: '#e2e8f0' }}
               />
               <Line type="monotone" dataKey="score" stroke="#22c55e" strokeWidth={2} dot={{ fill: '#22c55e', r: 3 }} />
@@ -155,18 +155,18 @@ export function DashboardPage() {
         </div>
 
         {/* Category breakdown */}
-        <div className="bg-slate-800 rounded-lg p-4">
+        <div className="bg-navy-800 rounded-lg p-4">
           <h3 className="text-white font-medium mb-4 flex items-center gap-2">
             <Target size={16} className="text-purple-400" />
             Error Categories
           </h3>
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={data.mistakesByCategory.slice(0, 8)} layout="vertical">
-              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+              <CartesianGrid strokeDasharray="3 3" stroke="#162846" />
               <XAxis type="number" tick={{ fill: '#94a3b8', fontSize: 12 }} />
               <YAxis type="category" dataKey="category" width={120} tick={{ fill: '#94a3b8', fontSize: 11 }} />
               <Tooltip
-                contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
+                contentStyle={{ backgroundColor: '#0f1e36', border: '1px solid #162846', borderRadius: '8px' }}
                 labelStyle={{ color: '#e2e8f0' }}
               />
               <Bar dataKey="count" fill="#8b5cf6" radius={[0, 4, 4, 0]} />
@@ -175,7 +175,7 @@ export function DashboardPage() {
         </div>
 
         {/* Recurring mistakes */}
-        <div className="bg-slate-800 rounded-lg p-4">
+        <div className="bg-navy-800 rounded-lg p-4">
           <h3 className="text-white font-medium mb-4">Recurring Mistakes</h3>
           {data.recurringMistakes.length === 0 ? (
             <p className="text-slate-500 text-sm">No recurring patterns found yet</p>

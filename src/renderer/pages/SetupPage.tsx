@@ -124,7 +124,7 @@ export function SetupPage() {
   const hasErrors = items.some(i => i.status === 'error');
 
   return (
-    <div className="flex items-center justify-center h-screen bg-slate-900">
+    <div className="flex items-center justify-center h-screen bg-navy-900">
       <div className="max-w-lg w-full p-8">
         <h1 className="text-3xl font-bold text-white mb-2">MemPill Language</h1>
         <p className="text-slate-400 mb-8">
@@ -142,7 +142,7 @@ export function SetupPage() {
               <div
                 key={item.name}
                 className={`flex items-start gap-3 rounded-lg p-4 ${
-                  item.status === 'error' ? 'bg-red-500/5 border border-red-500/20' : 'bg-slate-800'
+                  item.status === 'error' ? 'bg-red-500/5 border border-red-500/20' : 'bg-navy-800'
                 }`}
               >
                 {item.status === 'checking' && <Loader2 size={20} className="text-slate-500 animate-spin mt-0.5" />}
@@ -163,7 +163,7 @@ export function SetupPage() {
                           <> ({Math.round(downloadProgress.downloaded / 1024 / 1024)}MB / {Math.round(downloadProgress.total / 1024 / 1024)}MB)</>
                         )}
                       </p>
-                      <div className="w-full bg-slate-700 rounded-full h-1.5">
+                      <div className="w-full bg-navy-700 rounded-full h-1.5">
                         <div
                           className="bg-blue-500 h-1.5 rounded-full transition-all duration-300"
                           style={{ width: `${downloadProgress.percentage}%` }}
@@ -200,7 +200,7 @@ export function SetupPage() {
                           className={`flex items-center gap-1.5 px-3 py-1.5 text-white text-xs rounded transition-colors ${
                             gpuInfo.available
                               ? 'bg-blue-600 hover:bg-blue-700'
-                              : 'bg-slate-700 text-slate-500 cursor-not-allowed'
+                              : 'bg-navy-700 text-slate-500 cursor-not-allowed'
                           }`}
                         >
                           <Zap size={14} />
@@ -211,7 +211,7 @@ export function SetupPage() {
                           className={`flex items-center gap-1.5 px-3 py-1.5 text-white text-xs rounded transition-colors ${
                             !gpuInfo.available
                               ? 'bg-blue-600 hover:bg-blue-700'
-                              : 'bg-slate-700 hover:bg-slate-600'
+                              : 'bg-navy-700 hover:bg-navy-600'
                           }`}
                         >
                           <Cpu size={14} />
@@ -230,7 +230,7 @@ export function SetupPage() {
             <button
               onClick={runChecks}
               disabled={checking || downloading || downloadingBinary}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-navy-800 hover:bg-navy-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <RefreshCw size={16} className={checking ? 'animate-spin' : ''} />
               Re-check
@@ -241,7 +241,7 @@ export function SetupPage() {
             className={`flex-1 px-4 py-3 rounded-lg font-medium transition-colors ${
               allPassed
                 ? 'bg-blue-600 hover:bg-blue-700 text-white'
-                : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                : 'bg-navy-700 text-slate-300 hover:bg-navy-600'
             }`}
           >
             {allPassed ? 'Continue' : 'Continue anyway'}

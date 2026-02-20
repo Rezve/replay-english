@@ -1,4 +1,4 @@
-import { app, BrowserWindow, desktopCapturer, session } from 'electron';
+import { app, BrowserWindow, desktopCapturer, session, Menu } from 'electron';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
 import { registerAllIpcHandlers } from './main/ipc';
@@ -13,12 +13,15 @@ if (started) {
 let mainWindow: BrowserWindow | null = null;
 
 const createWindow = () => {
+  Menu.setApplicationMenu(null);
+
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
     minWidth: 900,
     minHeight: 600,
     title: 'MemPill Language',
+    frame: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,

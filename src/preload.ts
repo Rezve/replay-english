@@ -91,6 +91,12 @@ const electronAPI: ElectronAPI = {
   checkGpu: () =>
     ipcRenderer.invoke(IPC_CHANNELS.CHECK_GPU),
 
+  // Window controls
+  windowMinimize: () => ipcRenderer.invoke(IPC_CHANNELS.WINDOW_MINIMIZE),
+  windowMaximize: () => ipcRenderer.invoke(IPC_CHANNELS.WINDOW_MAXIMIZE),
+  windowClose: () => ipcRenderer.invoke(IPC_CHANNELS.WINDOW_CLOSE),
+  windowIsMaximized: () => ipcRenderer.invoke(IPC_CHANNELS.WINDOW_IS_MAXIMIZED),
+
   // Events
   onProgress: (callback: (event: ProgressEvent) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, data: ProgressEvent) => callback(data);

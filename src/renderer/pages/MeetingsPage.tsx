@@ -183,14 +183,14 @@ export function MeetingsPage() {
                 placeholder="Search meetings..."
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm placeholder-slate-500 focus:outline-none focus:border-slate-500"
+                className="w-full pl-9 pr-3 py-1.5 bg-navy-900 border border-navy-700 rounded-lg text-white text-sm placeholder-slate-500 focus:outline-none focus:border-slate-500"
               />
             </div>
             {profiles.length > 0 && (
               <select
                 value={profileId}
                 onChange={e => setProfileId(e.target.value)}
-                className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm"
+                className="px-3 py-1.5 bg-navy-800 border border-navy-700 rounded-lg text-white text-sm"
               >
                 <option value="">All profiles</option>
                 {profiles.map(p => (
@@ -202,7 +202,7 @@ export function MeetingsPage() {
 
           {/* Status + Time Range pills */}
           <div className="flex items-center gap-3">
-            <div className="flex bg-slate-800 rounded-lg p-0.5">
+            <div className="flex bg-navy-800 rounded-lg p-0.5">
               {statusOptions.map(opt => (
                 <button
                   key={opt.value}
@@ -215,7 +215,7 @@ export function MeetingsPage() {
                 </button>
               ))}
             </div>
-            <div className="flex bg-slate-800 rounded-lg p-0.5">
+            <div className="flex bg-navy-800 rounded-lg p-0.5">
               {timeRangeOptions.map(opt => (
                 <button
                   key={opt.value}
@@ -235,7 +235,7 @@ export function MeetingsPage() {
       {/* Content */}
       {meetings.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center">
-          <div className="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center mb-4">
+          <div className="w-16 h-16 rounded-full bg-navy-800 flex items-center justify-center mb-4">
             <List size={28} className="text-slate-500" />
           </div>
           <p className="text-slate-400">No meetings recorded yet</p>
