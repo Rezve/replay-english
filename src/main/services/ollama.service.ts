@@ -9,7 +9,7 @@ import type {
 
 const ollama = new Ollama({ host: 'http://localhost:11434' });
 
-const SYSTEM_PROMPT = `You are an expert English language teacher and grammar analyst. Your job is to analyze transcribed speech from a non-native English speaker in a professional meeting context.
+const SYSTEM_PROMPT_PROFESSIONAL = `You are an expert English language teacher and grammar analyst. Your job is to analyze transcribed speech from a non-native English speaker in a professional meeting context.
 
 For each sentence, identify grammar mistakes, vocabulary errors, and unnatural phrasing. Focus on errors that would be noticeable in a professional setting.
 
@@ -35,6 +35,48 @@ For each mistake found, provide:
 4. 2-3 alternative ways to express the same idea naturally
 5. The error category (one of: Subject-Verb Agreement, Tense Consistency, Article Usage, Preposition Errors, Plural/Singular, Word Order, Conditional Structures, Pronoun Reference, Word Choice, False Friends, Collocation Errors, Register Mismatch, Awkward Phrasing, Redundancy, Incomplete Thought, Non-idiomatic Expression)
 6. Severity: minor (native speakers might not notice), moderate (noticeable but understandable), major (causes confusion or sounds very unnatural)`;
+
+const SYSTEM_PROMPT_CONVERSATIONAL = `You are a supportive English language coach. Your job is to analyze transcribed speech from a non-native English speaker in a casual, informal conversation context.
+
+Focus ONLY on mistakes that genuinely impede understanding or sound clearly wrong to any listener. Be lenient — informal conversation has very different standards than formal writing or professional meetings.
+
+IMPORTANT: This is TRANSCRIBED SPEECH, not written text. The transcription may lack proper punctuation — this is normal.
+
+DO NOT flag:
+- Missing punctuation (transcription artifact)
+- Filler words (um, uh, like, you know, basically, right) — natural in casual speech
+- Contractions (I'm, gonna, wanna, gotta, kinda) — completely acceptable in conversation
+- Colloquialisms and informal expressions — appropriate in casual contexts
+- Sentence fragments that are clearly understood from context
+- Informal phrasing or style choices that don't cause confusion
+- Minor article omissions that do not change meaning
+- Preposition variations common in spoken English
+- Accent-related transcription artifacts
+- Register mismatch (formal vs informal) — this is not an error in conversation
+
+ONLY flag:
+- Subject-verb agreement errors that would confuse a listener
+- Tense errors that change the intended meaning
+- Word choices that produce the wrong meaning entirely
+- Grammatical structures that are clearly ungrammatical even in casual speech
+- Errors that make the sentence genuinely hard to understand
+
+Severity guidance for conversational mode:
+- minor: Use sparingly — only for errors a native casual speaker would definitely notice as wrong (not just informal)
+- moderate: Noticeably incorrect to most listeners, though meaning is still clear
+- major: Causes genuine confusion or sounds very wrong even in casual speech
+
+For each mistake found, provide:
+1. The original problematic text (exact quote)
+2. The corrected version
+3. A friendly, concise explanation of what was wrong
+4. 2-3 alternative natural ways to express the same idea
+5. The error category (one of: Subject-Verb Agreement, Tense Consistency, Article Usage, Preposition Errors, Plural/Singular, Word Order, Conditional Structures, Pronoun Reference, Word Choice, False Friends, Collocation Errors, Register Mismatch, Awkward Phrasing, Redundancy, Incomplete Thought, Non-idiomatic Expression)
+6. Severity: minor, moderate, or major`;
+
+function getLineByLineSystemPrompt(mode: 'professional' | 'conversational'): string {
+  return mode === 'conversational' ? SYSTEM_PROMPT_CONVERSATIONAL : SYSTEM_PROMPT_PROFESSIONAL;
+}
 
 export interface AnalysisResult {
   segmentIndex: number;
@@ -74,7 +116,8 @@ export async function pullModel(modelName: string): Promise<void> {
 
 export async function analyzeSegments(
   segments: { index: number; text: string }[],
-  modelName: string = 'qwen2.5:7b'
+  modelName: string = 'qwen2.5:7b',
+  mode: 'professional' | 'conversational' = 'professional'
 ): Promise<AnalysisResult[]> {
   const segmentLines = segments
     .map(s => `[${s.index}] "${s.text}"`)
@@ -104,7 +147,7 @@ Respond ONLY with valid JSON in this exact format:
   const response = await ollama.chat({
     model: modelName,
     messages: [
-      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'system', content: getLineByLineSystemPrompt(mode) },
       { role: 'user', content: userPrompt },
     ],
     format: 'json',
@@ -153,14 +196,24 @@ async function chatJson<T>(systemPrompt: string, userPrompt: string, modelName: 
 
 export async function analyzeGrammarFull(
   transcript: string,
-  modelName = 'qwen2.5:7b'
+  modelName = 'qwen2.5:7b',
+  mode: 'professional' | 'conversational' = 'professional'
 ): Promise<GrammarFullResult> {
-  const systemPrompt = `You are an expert English language teacher analyzing a complete transcribed meeting from a non-native English speaker.
+  const systemPromptProfessional = `You are an expert English language teacher analyzing a complete transcribed meeting from a non-native English speaker.
 
 Analyze the FULL transcript as a whole, considering context across sentences. Focus on grammar mistakes, vocabulary errors, and unnatural phrasing that would be noticeable in a professional setting.
 
 This is TRANSCRIBED SPEECH — do NOT flag missing punctuation, filler words, hesitations, or accent artifacts.
 Only flag genuine language errors in the words spoken.`;
+
+  const systemPromptConversational = `You are a supportive English language coach analyzing a complete transcribed conversation from a non-native English speaker.
+
+Analyze the FULL transcript as a whole, considering context across sentences. Apply lenient, conversational standards — flag only errors that genuinely impede understanding or sound clearly ungrammatical, not style or formality issues.
+
+This is TRANSCRIBED SPEECH — do NOT flag missing punctuation, filler words, contractions, colloquialisms, or accent artifacts.
+Only flag genuine errors in spoken words that would confuse or noticeably jar a listener even in casual speech.`;
+
+  const systemPrompt = mode === 'conversational' ? systemPromptConversational : systemPromptProfessional;
 
   const userPrompt = `Analyze this full meeting transcript for English language mistakes. Consider the full context when evaluating each issue.
 

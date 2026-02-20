@@ -24,6 +24,10 @@ async function getSettingsModels(): Promise<{ whisperModel: string; ollamaModel:
   };
 }
 
+function getGrammarMode(settingsMap: Record<string, string>): 'professional' | 'conversational' {
+  return settingsMap['grammarMode'] === 'conversational' ? 'conversational' : 'professional';
+}
+
 function getEnabledAnalysisTypes(settingsMap: Record<string, string>): ContextAnalysisType[] {
   const all: ContextAnalysisType[] = ['grammar_full', 'summary', 'action_items', 'vocabulary', 'fluency'];
   return all.filter(t => {
@@ -39,10 +43,12 @@ export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
       const settingsMap = await getSettingsMap();
       if (settingsMap['analysisLineByLine'] === 'false') return [];
       const ollamaModel = settingsMap['ollamaModel'] || DEFAULT_SETTINGS.ollamaModel;
+      const grammarMode = getGrammarMode(settingsMap);
       return await analyzeTranscript(
         meetingId,
         segments,
         ollamaModel,
+        grammarMode,
         (current, total) => {
           mainWindow.webContents.send(IPC_CHANNELS.PROGRESS, {
             stage: 'analyzing',
@@ -74,6 +80,7 @@ export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
       const settingsMap = await getSettingsMap();
       const whisperModel = settingsMap['whisperModel'] || DEFAULT_SETTINGS.whisperModel;
       const pipelineOllamaModel = settingsMap['ollamaModel'] || DEFAULT_SETTINGS.ollamaModel;
+      const pipelineGrammarMode = getGrammarMode(settingsMap);
       const db = getDb();
       const allSegments: TranscriptSegment[] = [];
       let globalSegmentIndex = 0;
@@ -145,6 +152,7 @@ export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
           meetingId,
           allSegments,
           pipelineOllamaModel,
+          pipelineGrammarMode,
           (current, total) => {
             mainWindow.webContents.send(IPC_CHANNELS.PROGRESS, {
               stage: 'analyzing',
@@ -174,6 +182,7 @@ export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
           allSegments,
           pipelineOllamaModel,
           enabledTypes,
+          pipelineGrammarMode,
           (type, done) => {
             mainWindow.webContents.send(IPC_CHANNELS.PROGRESS, {
               stage: 'context-analyzing',
@@ -215,6 +224,7 @@ export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
 
       const settingsMap = await getSettingsMap();
       const reAnalyzeModel = settingsMap['ollamaModel'] || DEFAULT_SETTINGS.ollamaModel;
+      const reAnalyzeGrammarMode = getGrammarMode(settingsMap);
 
       // Set status to analyzing and clear old mistakes
       await db.update(dbSchema.meetings)
@@ -226,6 +236,7 @@ export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
         meetingId,
         segments,
         reAnalyzeModel,
+        reAnalyzeGrammarMode,
         (current, total) => {
           mainWindow.webContents.send(IPC_CHANNELS.PROGRESS, {
             stage: 'analyzing',
@@ -263,12 +274,14 @@ export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
       const settingsMap = await getSettingsMap();
       const ollamaModel = settingsMap['ollamaModel'] || DEFAULT_SETTINGS.ollamaModel;
       const enabledTypes = getEnabledAnalysisTypes(settingsMap);
+      const grammarMode = getGrammarMode(settingsMap);
 
       return await runContextAnalyses(
         meetingId,
         segments,
         ollamaModel,
         enabledTypes,
+        grammarMode,
         (type, done) => {
           mainWindow.webContents.send(IPC_CHANNELS.PROGRESS, {
             stage: 'context-analyzing',
@@ -298,6 +311,7 @@ export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
 
       const settingsMap = await getSettingsMap();
       const ollamaModel = settingsMap['ollamaModel'] || DEFAULT_SETTINGS.ollamaModel;
+      const singleGrammarMode = getGrammarMode(settingsMap);
       const validType = type as import('../../shared/types').ContextAnalysisType;
 
       const results = await runContextAnalyses(
@@ -305,6 +319,7 @@ export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
         segments,
         ollamaModel,
         [validType],
+        singleGrammarMode,
         (_t, done) => {
           mainWindow.webContents.send(IPC_CHANNELS.PROGRESS, {
             stage: 'context-analyzing',
@@ -351,6 +366,7 @@ export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
 
       const settingsMap = await getSettingsMap();
       const ollamaModel = settingsMap['ollamaModel'] || DEFAULT_SETTINGS.ollamaModel;
+      const startGrammarMode = getGrammarMode(settingsMap);
       const lineByLineEnabled = settingsMap['analysisLineByLine'] !== 'false';
       const enabledTypes = getEnabledAnalysisTypes(settingsMap);
       const hasAnyAnalysis = lineByLineEnabled || enabledTypes.length > 0;
@@ -372,6 +388,7 @@ export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
           meetingId,
           segments,
           ollamaModel,
+          startGrammarMode,
           (current, total) => {
             mainWindow.webContents.send(IPC_CHANNELS.PROGRESS, {
               stage: 'analyzing',
@@ -400,6 +417,7 @@ export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
           segments,
           ollamaModel,
           enabledTypes,
+          startGrammarMode,
           (type, done) => {
             mainWindow.webContents.send(IPC_CHANNELS.PROGRESS, {
               stage: 'context-analyzing',

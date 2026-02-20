@@ -134,6 +134,38 @@ export function SettingsPage() {
           </select>
         </div>
 
+        {/* Grammar Check Mode */}
+        <div className="bg-slate-800 rounded-lg p-4">
+          <h3 className="text-white font-medium mb-1">Grammar Check Mode</h3>
+          <p className="text-slate-400 text-xs mb-3">
+            Controls how strictly grammar is evaluated during analysis.
+          </p>
+          <div className="flex gap-3">
+            <button
+              onClick={() => persistSettings({ ...settings, grammarMode: 'professional' })}
+              className={`flex-1 px-4 py-2.5 rounded-lg text-sm transition-colors border text-left ${
+                settings.grammarMode === 'professional'
+                  ? 'bg-blue-600 border-blue-500 text-white'
+                  : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-slate-600 hover:text-slate-300'
+              }`}
+            >
+              <div className="font-semibold">Professional</div>
+              <div className="text-xs mt-0.5 opacity-80">Strict — flags formality &amp; style issues</div>
+            </button>
+            <button
+              onClick={() => persistSettings({ ...settings, grammarMode: 'conversational' })}
+              className={`flex-1 px-4 py-2.5 rounded-lg text-sm transition-colors border text-left ${
+                settings.grammarMode === 'conversational'
+                  ? 'bg-blue-600 border-blue-500 text-white'
+                  : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-slate-600 hover:text-slate-300'
+              }`}
+            >
+              <div className="font-semibold">Conversational</div>
+              <div className="text-xs mt-0.5 opacity-80">Lenient — flags only clarity errors</div>
+            </button>
+          </div>
+        </div>
+
         {/* Analysis Types */}
         <div className="bg-slate-800 rounded-lg p-4">
           <h3 className="text-white font-medium mb-1">Analysis Types</h3>

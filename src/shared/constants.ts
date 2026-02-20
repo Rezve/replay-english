@@ -38,6 +38,7 @@ export const DEFAULT_SETTINGS = {
   analysisActionItems: true,
   analysisVocabulary: true,
   analysisFluency: true,
+  grammarMode: 'professional',
 } as const;
 
 export const IPC_CHANNELS = {

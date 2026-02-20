@@ -27,6 +27,7 @@ export function registerSettingsHandlers() {
       analysisActionItems: settingsMap['analysisActionItems'] !== 'false',
       analysisVocabulary: settingsMap['analysisVocabulary'] !== 'false',
       analysisFluency: settingsMap['analysisFluency'] !== 'false',
+      grammarMode: (settingsMap['grammarMode'] === 'conversational' ? 'conversational' : 'professional') as AppSettings['grammarMode'],
     } as AppSettings;
   });
 

@@ -159,6 +159,7 @@ export interface AppSettings {
   analysisActionItems: boolean;
   analysisVocabulary: boolean;
   analysisFluency: boolean;
+  grammarMode: 'professional' | 'conversational';
 }
 
 export interface ProgressEvent {

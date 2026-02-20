@@ -34,6 +34,7 @@ export async function analyzeTranscript(
   meetingId: string,
   segments: TranscriptSegment[],
   modelName = 'qwen2.5:7b',
+  mode: 'professional' | 'conversational' = 'professional',
   onProgress?: (current: number, total: number) => void,
   onBatchComplete?: (mistakes: Mistake[], batchIndex: number, totalBatches: number, done: boolean) => void
 ): Promise<Mistake[]> {
@@ -67,7 +68,7 @@ export async function analyzeTranscript(
 
     let results: AnalysisResult[];
     try {
-      results = await analyzeSegments(batches[batchIdx], modelName);
+      results = await analyzeSegments(batches[batchIdx], modelName, mode);
     } catch (err) {
       console.error(`Analysis batch ${batchIdx + 1} failed:`, err);
       continue;
@@ -175,6 +176,7 @@ export async function runContextAnalyses(
   segments: TranscriptSegment[],
   modelName: string,
   enabledTypes: ContextAnalysisType[],
+  mode: 'professional' | 'conversational' = 'professional',
   onProgress?: (type: ContextAnalysisType, done: boolean) => void
 ): Promise<MeetingAnalysis[]> {
   if (enabledTypes.length === 0 || segments.length === 0) return [];
@@ -203,8 +205,13 @@ export async function runContextAnalyses(
     if (onProgress) onProgress(type, false);
 
     try {
-      const fn = contextAnalysisFns[type];
-      const content = await fn(fullTranscript, modelName);
+      let content: unknown;
+      if (type === 'grammar_full') {
+        content = await analyzeGrammarFull(fullTranscript, modelName, mode);
+      } else {
+        const fn = contextAnalysisFns[type];
+        content = await fn(fullTranscript, modelName);
+      }
 
       const analysis: MeetingAnalysis = {
         id: uuidv4(),
