@@ -16,13 +16,6 @@ async function getSettingsMap(): Promise<Record<string, string>> {
   return map;
 }
 
-async function getSettingsModels(): Promise<{ whisperModel: string; ollamaModel: string }> {
-  const map = await getSettingsMap();
-  return {
-    whisperModel: map['whisperModel'] || DEFAULT_SETTINGS.whisperModel,
-    ollamaModel: map['ollamaModel'] || DEFAULT_SETTINGS.ollamaModel,
-  };
-}
 
 function getGrammarMode(settingsMap: Record<string, string>): 'professional' | 'conversational' {
   return settingsMap['grammarMode'] === 'conversational' ? 'conversational' : 'professional';
@@ -139,7 +132,7 @@ export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
           status: hasAnyAnalysis ? 'analyzing' : 'completed',
           ...(!hasAnyAnalysis ? { endedAt: Date.now() } : {}),
         })
-        .where(require('drizzle-orm').eq(pipelineSchema.meetings.id, meetingId));
+        .where(eq(pipelineSchema.meetings.id, meetingId));
 
       if (!hasAnyAnalysis) {
         return { segments: allSegments, mistakes: [] };
@@ -169,7 +162,7 @@ export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
 
         // Check if analysis was cancelled — if so, return early
         const { isAnalysisCancelled } = await import('../services/analysis.service');
-        const meetingAfterAnalysis = await db.select().from(pipelineSchema.meetings).where(require('drizzle-orm').eq(pipelineSchema.meetings.id, meetingId)).get();
+        const meetingAfterAnalysis = await db.select().from(pipelineSchema.meetings).where(eq(pipelineSchema.meetings.id, meetingId)).get();
         if (meetingAfterAnalysis?.status === 'transcribed' || isAnalysisCancelled(meetingId)) {
           return { segments: allSegments, mistakes };
         }
@@ -198,7 +191,7 @@ export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
       if (!lineByLineEnabled) {
         await db.update(pipelineSchema.meetings)
           .set({ status: 'completed', endedAt: Date.now() })
-          .where(require('drizzle-orm').eq(pipelineSchema.meetings.id, meetingId));
+          .where(eq(pipelineSchema.meetings.id, meetingId));
       }
 
       return { segments: allSegments, mistakes };

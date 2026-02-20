@@ -5,7 +5,9 @@ import type { PrerequisiteStatus, ModelCheckResult } from '../../shared/types';
 function isFFmpegAvailable(): boolean {
   try {
     // ffmpeg-static provides the binary path
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const ffmpegPath = require('ffmpeg-static');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const fs = require('node:fs');
     return fs.existsSync(ffmpegPath);
   } catch {

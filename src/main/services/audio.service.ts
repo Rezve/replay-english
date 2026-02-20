@@ -9,7 +9,7 @@ const execFileAsync = promisify(execFile);
 function getFFmpegPath(): string {
   try {
     // ffmpeg-static provides the binary path
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const ffmpegPath = require('ffmpeg-static');
     return ffmpegPath;
   } catch {

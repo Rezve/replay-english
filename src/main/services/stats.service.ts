@@ -1,4 +1,4 @@
-import { eq, and, gte, sql, desc } from 'drizzle-orm';
+import { eq, and, gte } from 'drizzle-orm';
 import { getDb } from '../db/connection';
 import * as schema from '../db/schema';
 import type { AnalyticsData, TimeRange } from '../../shared/types';
@@ -101,7 +101,7 @@ export async function getAnalytics(timeRange: TimeRange, profileId?: string): Pr
   }
 
   const recurringMistakes = Array.from(recurringMap.entries())
-    .filter(([_, v]) => v.count >= 2)
+    .filter(([_key, v]) => v.count >= 2)
     .map(([original, v]) => ({ original, corrected: v.corrected, count: v.count }))
     .sort((a, b) => b.count - a.count)
     .slice(0, 10);

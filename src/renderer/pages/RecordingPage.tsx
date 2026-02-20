@@ -135,7 +135,7 @@ export function RecordingPage() {
       const micSource = audioContext.createMediaStreamSource(micStream);
       micSource.connect(destination);
 
-      let stream: MediaStream = destination.stream;
+      const stream: MediaStream = destination.stream;
 
       // Optionally capture desktop audio and mix it in
       if (captureDesktop) {
