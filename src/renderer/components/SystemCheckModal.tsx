@@ -253,7 +253,7 @@ export function SystemCheckModal({ whisperModel: initialWhisper, ollamaModel: in
                 : 'bg-navy-700 hover:bg-navy-600 text-white'
             } disabled:opacity-50 disabled:cursor-not-allowed`}
           >
-            {allReady ? 'All Ready' : 'Close'}
+            {allReady ? 'Continue' : 'Close'}
           </button>
         </div>
       </div>
