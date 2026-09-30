@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { NavLink } from 'react-router-dom';
+import { api } from '../../lib/api';
 import {
   Mic,
   List,
@@ -17,6 +18,12 @@ const navItems = [
 ];
 
 export function Sidebar() {
+  const [version, setVersion] = useState('');
+
+  useEffect(() => {
+    api.getAppVersion().then(setVersion).catch(() => {});
+  }, []);
+
   return (
     <aside className="w-56 bg-navy-950 border-r border-navy-800 flex flex-col">
       <nav className="flex-1 p-3 space-y-1 pt-4">
@@ -38,7 +45,7 @@ export function Sidebar() {
         ))}
       </nav>
       <div className="p-4 border-t border-navy-800">
-        <p className="text-xs text-slate-600">v1.0.0 MVP</p>
+        <p className="text-xs text-slate-600">{version ? `v${version}` : ''}</p>
       </div>
     </aside>
   );
