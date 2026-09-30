@@ -40,7 +40,12 @@ const config: ForgeConfig = {
       EXTERNAL_MODULES.forEach((m) => collectDependencies(m, modules));
       for (const name of modules) {
         const dest = path.join(buildPath, 'node_modules', name);
-        await fs.promises.cp(path.resolve('node_modules', name), dest, { recursive: true });
+        await fs.promises.cp(path.resolve('node_modules', name), dest, {
+          recursive: true,
+          // ffmpeg-static's *.LICENSE/*.README sidecars are not needed at runtime and
+          // have been deleted mid-package by AV scanners, breaking the asar step (ENOENT).
+          filter: (src) => !/\.(LICENSE|README)$/.test(src),
+        });
       }
     },
   },
