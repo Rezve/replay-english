@@ -7,6 +7,9 @@ import { FuseV1Options, FuseVersion } from '@electron/fuses';
 import fs from 'node:fs';
 import path from 'node:path';
 
+// Local publishes read GITHUB_TOKEN from .env (gitignored); in CI it comes from the workflow.
+if (fs.existsSync('.env')) process.loadEnvFile('.env');
+
 // Modules marked `external` in vite.main.config.ts are not bundled, and the Vite plugin
 // ships no node_modules, so they (plus their dependency trees) must be copied in manually.
 const EXTERNAL_MODULES = ['better-sqlite3', 'ffmpeg-static', 'adm-zip'];
@@ -49,7 +52,7 @@ const config: ForgeConfig = {
   ],
   publishers: [
     // Uploads installer + RELEASES + nupkg to a GitHub Release tagged v<package.json version>.
-    // Needs GITHUB_TOKEN in the environment (provided by the release workflow).
+    // Needs GITHUB_TOKEN in the environment (release workflow, or .env locally).
     new PublisherGithub({
       repository: { owner: 'Rezve', name: 'mempill-language' },
       prerelease: false,
