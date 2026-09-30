@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate, useBlocker } from 'react-router-dom';
-import { Mic, MicOff, Square, Loader2 } from 'lucide-react';
+import { Mic, MicOff, Square, Loader2, Pause, Play } from 'lucide-react';
 import { api } from '../lib/api';
 import type { Meeting, Profile, AppSettings } from '../../shared/types';
 
@@ -29,6 +29,7 @@ export function RecordingPage() {
   const [captureDesktop, setCaptureDesktop] = useState(true);
   const [chunkDurationMs, setChunkDurationMs] = useState(300000);
   const [isMuted, setIsMuted] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
 
   const blocker = useBlocker(state === 'recording');
 
@@ -45,6 +46,7 @@ export function RecordingPage() {
   const micChunkIndexRef = useRef(0);
   const chunkRotationRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isMutedRef = useRef(false);
+  const isPausedRef = useRef(false);
 
   useEffect(() => {
     api.listProfiles().then(setProfiles).catch(console.error);
@@ -83,28 +85,39 @@ export function RecordingPage() {
     if (!micStreamRef.current) return;
     const newMuted = !isMuted;
     isMutedRef.current = newMuted;
-    // Pause/resume the recorders — pausing stops data capture entirely (no silent chunks stored)
-    if (newMuted) {
+    // Disable the mic track only — it outputs silence while the recorders keep running,
+    // so desktop audio is still captured and the mic/mixed timelines stay aligned
+    micStreamRef.current.getAudioTracks().forEach(track => { track.enabled = !newMuted; });
+    setIsMuted(newMuted);
+  }, [isMuted]);
+
+  // Pause everything (mic + desktop) — nothing is captured until resumed
+  const togglePause = useCallback(() => {
+    const newPaused = !isPaused;
+    isPausedRef.current = newPaused;
+    if (newPaused) {
       micRecorderRef.current?.pause();
       mediaRecorderRef.current?.pause();
     } else {
       micRecorderRef.current?.resume();
       mediaRecorderRef.current?.resume();
     }
-    setIsMuted(newMuted);
-  }, [isMuted]);
+    setIsPaused(newPaused);
+  }, [isPaused]);
 
-  // Keyboard shortcut: M to toggle mute during recording
+  // Keyboard shortcuts during recording: M = mute mic, P = pause all
   useEffect(() => {
     if (state !== 'recording') return;
     const handleKey = (e: KeyboardEvent) => {
       if ((e.key === 'm' || e.key === 'M') && !e.ctrlKey && !e.metaKey && !e.altKey) {
         toggleMute();
+      } else if ((e.key === 'p' || e.key === 'P') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        togglePause();
       }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [state, toggleMute]);
+  }, [state, toggleMute, togglePause]);
 
   const startRecording = async () => {
     try {
@@ -210,28 +223,27 @@ export function RecordingPage() {
       micRecorderRef.current.start();
 
       // Rotate recorders every 5 minutes: stop (finalizes current chunk) → start new
-      // Handles 'paused' state too so rotation works even when user is muted
       chunkRotationRef.current = setInterval(() => {
+        // Handles 'paused' state too so rotation works while paused
         const mixedState = mediaRecorderRef.current?.state;
         if (mixedState === 'recording' || mixedState === 'paused') {
           mediaRecorderRef.current!.stop();
           mediaRecorderRef.current = createMixedRecorder();
           mediaRecorderRef.current.start();
-          if (isMutedRef.current) mediaRecorderRef.current.pause();
+          if (isPausedRef.current) mediaRecorderRef.current.pause();
         }
         const micState = micRecorderRef.current?.state;
         if (micState === 'recording' || micState === 'paused') {
           micRecorderRef.current!.stop();
           micRecorderRef.current = createMicRecorder();
           micRecorderRef.current.start();
-          if (isMutedRef.current) micRecorderRef.current.pause();
+          if (isPausedRef.current) micRecorderRef.current.pause();
         }
       }, chunkDurationMs);
 
-      // Start timer — skips incrementing while muted so it shows actual recorded time
       setElapsed(0);
       timerRef.current = setInterval(() => {
-        if (!isMutedRef.current) setElapsed(prev => prev + 1);
+        if (!isPausedRef.current) setElapsed(prev => prev + 1);
       }, 1000);
 
       setState('recording');
@@ -251,6 +263,10 @@ export function RecordingPage() {
       chunkRotationRef.current = null;
     }
 
+    // Resume paused recorders first so stop() finalizes the last chunk correctly
+    if (micRecorderRef.current?.state === 'paused') micRecorderRef.current.resume();
+    if (mediaRecorderRef.current?.state === 'paused') mediaRecorderRef.current.resume();
+
     // Stop both MediaRecorders (triggers final ondataavailable with complete chunk)
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
@@ -259,11 +275,10 @@ export function RecordingPage() {
       micRecorderRef.current.stop();
     }
 
-    // Resume recorders if paused so stop() finalizes the last chunk correctly
-    if (micRecorderRef.current?.state === 'paused') micRecorderRef.current.resume();
-    if (mediaRecorderRef.current?.state === 'paused') mediaRecorderRef.current.resume();
     isMutedRef.current = false;
     setIsMuted(false);
+    isPausedRef.current = false;
+    setIsPaused(false);
 
     // Stop all stream tracks
     if (streamRef.current) {
@@ -417,8 +432,9 @@ export function RecordingPage() {
           </button>
         </div>
 
-        {/* Mute toggle — only visible while recording */}
+        {/* Mute / pause toggles — only visible while recording */}
         {state === 'recording' && (
+          <div className="flex items-center justify-center gap-3">
           <button
             onClick={toggleMute}
             title={isMuted ? 'Unmute mic (M)' : 'Mute mic when muted in Teams/Zoom (M)'}
@@ -431,6 +447,19 @@ export function RecordingPage() {
             {isMuted ? <MicOff size={16} /> : <Mic size={16} />}
             {isMuted ? 'Muted (click to unmute)' : 'Mute mic'}
           </button>
+          <button
+            onClick={togglePause}
+            title={isPaused ? 'Resume recording (P)' : 'Pause all recording — mic and desktop (P)'}
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-medium transition-all ${
+              isPaused
+                ? 'bg-orange-500 hover:bg-orange-600 text-white'
+                : 'bg-navy-700 hover:bg-navy-600 text-slate-300'
+            }`}
+          >
+            {isPaused ? <Play size={16} /> : <Pause size={16} />}
+            {isPaused ? 'Paused (click to resume)' : 'Pause all'}
+          </button>
+          </div>
         )}
 
         {/* Status */}
@@ -447,9 +476,9 @@ export function RecordingPage() {
         {state === 'recording' && (
           <div>
             <p className="text-3xl font-mono text-white font-bold">{formatTimer(elapsed)}</p>
-            <p className={`mt-2 flex items-center justify-center gap-2 ${isMuted ? 'text-orange-400' : 'text-red-400'}`}>
-              <span className={`w-2 h-2 rounded-full animate-pulse ${isMuted ? 'bg-orange-500' : 'bg-red-500'}`} />
-              {isMuted ? 'Mic muted — not recording your voice' : `Recording microphone${captureDesktop ? ' + desktop audio' : ''}`}
+            <p className={`mt-2 flex items-center justify-center gap-2 ${isPaused || isMuted ? 'text-orange-400' : 'text-red-400'}`}>
+              <span className={`w-2 h-2 rounded-full animate-pulse ${isPaused || isMuted ? 'bg-orange-500' : 'bg-red-500'}`} />
+              {isPaused ? 'Paused — nothing is being recorded' : isMuted ? `Mic muted — not recording your voice${captureDesktop ? ' (desktop audio still recording)' : ''}` : `Recording microphone${captureDesktop ? ' + desktop audio' : ''}`}
             </p>
             <p className="text-slate-500 text-sm mt-1">
               {chunkCount} chunk{chunkCount !== 1 ? 's' : ''} saved
