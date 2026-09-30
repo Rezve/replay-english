@@ -30,6 +30,7 @@ export function registerDatabaseHandlers() {
       totalMistakes: 0,
       overallScore: null,
       notes: null,
+      transcript: null,
     };
     await db.insert(schema.meetings).values(meeting);
     return meeting;

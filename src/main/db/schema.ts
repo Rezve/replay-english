@@ -19,6 +19,7 @@ export const meetings = sqliteTable('meetings', {
   totalMistakes: integer('total_mistakes').notNull().default(0),
   overallScore: real('overall_score'),
   notes: text('notes'),
+  transcript: text('transcript'), // natural paragraph-form transcript
 });
 
 export const transcriptSegments = sqliteTable('transcript_segments', {

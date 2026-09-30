@@ -19,6 +19,7 @@ export interface Meeting {
   totalMistakes: number;
   overallScore: number | null;
   notes: string | null;
+  transcript: string | null;
 }
 
 export type MeetingStatus = 'recording' | 'transcribing' | 'analyzing' | 'transcribed' | 'completed' | 'failed';

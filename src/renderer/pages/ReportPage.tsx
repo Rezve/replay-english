@@ -14,8 +14,10 @@ import {
   Volume2,
   Square,
   Download,
+  Copy,
 } from 'lucide-react';
 import { api } from '../lib/api';
+import { buildTranscriptParagraphs } from '../../shared/transcript';
 import type {
   MeetingWithAnalysis,
   Mistake,
@@ -31,9 +33,10 @@ import type {
   AppSettings,
 } from '../../shared/types';
 
-type ReportTab = 'line-by-line' | ContextAnalysisType;
+type ReportTab = 'transcript' | 'line-by-line' | ContextAnalysisType;
 
 const TAB_LABELS: Record<ReportTab, string> = {
+  transcript: 'Transcript',
   'line-by-line': 'Line-by-Line',
   grammar_full: 'Grammar (Full)',
   summary: 'Summary',
@@ -444,7 +447,7 @@ export function ReportPage() {
     setSelectedMistake(mistakes[newIndex]);
   };
 
-  const allTabs: ReportTab[] = ['line-by-line', 'grammar_full', 'summary', 'action_items', 'vocabulary', 'fluency'];
+  const allTabs: ReportTab[] = ['transcript', 'line-by-line', 'grammar_full', 'summary', 'action_items', 'vocabulary', 'fluency'];
 
   if (loading) {
     return (
@@ -722,6 +725,34 @@ export function ReportPage() {
 
       {/* Main content */}
       <div className="flex-1 flex gap-4 min-h-0">
+        {activeTab === 'transcript' && (() => {
+          // Meetings transcribed before this tab existed have no stored transcript
+          const text = meeting.transcript ?? buildTranscriptParagraphs(meeting.segments);
+          if (!text) return (
+            <div className="flex-1 flex items-center justify-center py-12">
+              <p className="text-slate-400">No transcript available</p>
+            </div>
+          );
+          return (
+            <div className="flex-1 overflow-y-auto pr-2">
+              <div className="flex justify-end mb-2">
+                <button
+                  onClick={() => navigator.clipboard.writeText(text)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-navy-700 hover:bg-navy-600 text-slate-300 hover:text-white rounded-lg transition-colors"
+                >
+                  <Copy size={12} />
+                  Copy
+                </button>
+              </div>
+              <div className="bg-navy-800 rounded-lg p-5 space-y-4">
+                {text.split('\n\n').map((para, i) => (
+                  <p key={i} className="text-slate-200 text-sm leading-relaxed">{para}</p>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
+
         {activeTab === 'line-by-line' && (
           <>
             {/* Transcript panel */}

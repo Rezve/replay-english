@@ -4,6 +4,7 @@ import { IPC_CHANNELS, DEFAULT_SETTINGS } from '../../shared/constants';
 import { getDb } from '../db/connection';
 import * as dbSchema from '../db/schema';
 import { analyzeTranscript, runContextAnalyses, cancelAnalysis } from '../services/analysis.service';
+import { buildTranscriptParagraphs } from '../../shared/transcript';
 import type { TranscriptSegment, AnalysisBatchEvent, ContextAnalysisType } from '../../shared/types';
 
 async function getSettingsMap(): Promise<Record<string, string>> {
@@ -97,7 +98,7 @@ export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
       await db.delete(pipelineSchema.meetingAnalyses).where(eq(pipelineSchema.meetingAnalyses.meetingId, meetingId));
       await db.delete(pipelineSchema.transcriptSegments).where(eq(pipelineSchema.transcriptSegments.meetingId, meetingId));
       await db.update(pipelineSchema.meetings)
-        .set({ status: 'transcribing', totalSegments: 0, totalMistakes: 0, overallScore: null })
+        .set({ status: 'transcribing', totalSegments: 0, totalMistakes: 0, overallScore: null, transcript: null })
         .where(eq(pipelineSchema.meetings.id, meetingId));
 
       const language = settingsMap['transcriptionLanguage'] || DEFAULT_SETTINGS.transcriptionLanguage;
@@ -183,6 +184,7 @@ export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
       await db.update(pipelineSchema.meetings)
         .set({
           totalSegments: allSegments.length,
+          transcript: buildTranscriptParagraphs(allSegments),
           status: hasAnyAnalysis ? 'analyzing' : 'completed',
           ...(!hasAnyAnalysis ? { endedAt: Date.now() } : {}),
         })

@@ -85,6 +85,12 @@ export function runMigrations() {
     // Column already exists — ignore
   }
 
+  try {
+    sqlite.exec(`ALTER TABLE meetings ADD COLUMN transcript TEXT;`);
+  } catch {
+    // Column already exists — ignore
+  }
+
   // Seed error categories if empty
   const count = sqlite.prepare('SELECT COUNT(*) as cnt FROM error_categories').get() as { cnt: number };
   if (count.cnt === 0) {
