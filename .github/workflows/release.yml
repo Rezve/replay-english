@@ -1,0 +1,68 @@
+name: Release
+
+# Every push to main is inspected: if it contains releasable commits
+# (feat / fix / perf / refactor) the version is bumped, the Windows installer
+# is built, and a GitHub Release is published. Installed apps then pick it up
+# automatically via update.electronjs.org.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # need tags + history to compute the version
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Compute next version
+        id: version
+        shell: bash
+        run: |
+          NEXT=$(node scripts/next-version.mjs)
+          echo "next=$NEXT" >> "$GITHUB_OUTPUT"
+          if [ -z "$NEXT" ]; then echo "No releasable commits."; fi
+
+      - name: Install dependencies
+        if: steps.version.outputs.next != ''
+        run: npm ci
+
+      - name: Lint
+        if: steps.version.outputs.next != ''
+        run: npm run lint
+
+      - name: Set version
+        if: steps.version.outputs.next != ''
+        shell: bash
+        run: npm version "${{ steps.version.outputs.next }}" --no-git-tag-version --allow-same-version
+
+      - name: Build and publish release
+        if: steps.version.outputs.next != ''
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run publish
+
+      - name: Commit version bump
+        if: steps.version.outputs.next != ''
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json
+          git diff --cached --quiet || git commit -m "chore(release): v${{ steps.version.outputs.next }} [skip ci]"
+          git push origin HEAD:main

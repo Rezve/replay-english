@@ -12,10 +12,10 @@ const execFileAsync = promisify(execFile);
 
 // Whisper binary and model paths
 function getWhisperDir(): string {
-  // In dev: resources/whisper, in production: extraResources
-  const devPath = path.join(process.cwd(), 'resources', 'whisper');
-  const prodPath = path.join(process.resourcesPath, 'whisper');
-  return fs.existsSync(prodPath) ? prodPath : devPath;
+  // Packaged: the install dir is read-only and updated on each release, so the
+  // downloaded binary lives in userData. Dev: resources/whisper in the project.
+  if (app.isPackaged) return path.join(app.getPath('userData'), 'whisper');
+  return path.join(process.cwd(), 'resources', 'whisper');
 }
 
 function getModelDir(): string {

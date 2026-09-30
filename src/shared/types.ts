@@ -183,6 +183,13 @@ export interface AnalysisBatchEvent {
   done: boolean;
 }
 
+export type UpdateStatus =
+  | { state: 'idle' }
+  | { state: 'checking' }
+  | { state: 'downloading' }
+  | { state: 'downloaded'; version: string; notes?: string }
+  | { state: 'error'; message: string };
+
 export interface AudioChunkInfo {
   filename: string;
   size: number;
@@ -202,6 +209,13 @@ export interface ModelCheckResult {
 
 // Electron API exposed via preload
 export interface ElectronAPI {
+  // Updates
+  getAppVersion(): Promise<string>;
+  checkForUpdates(): Promise<void>;
+  installUpdate(): Promise<void>;
+  getUpdateStatus(): Promise<UpdateStatus>;
+  onUpdateStatus(callback: (status: UpdateStatus) => void): () => void;
+
   // Audio
   saveAudioChunk(meetingId: string, chunkIndex: number, buffer: ArrayBuffer, prefix?: string): Promise<string>;
   convertToWav(inputPath: string): Promise<string>;

@@ -1,26 +1,61 @@
 import type { ForgeConfig } from '@electron-forge/shared-types';
 import { MakerSquirrel } from '@electron-forge/maker-squirrel';
-import { MakerZIP } from '@electron-forge/maker-zip';
-import { MakerDeb } from '@electron-forge/maker-deb';
-import { MakerRpm } from '@electron-forge/maker-rpm';
+import { PublisherGithub } from '@electron-forge/publisher-github';
 import { VitePlugin } from '@electron-forge/plugin-vite';
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
+import fs from 'node:fs';
+import path from 'node:path';
+
+// Modules marked `external` in vite.main.config.ts are not bundled, and the Vite plugin
+// ships no node_modules, so they (plus their dependency trees) must be copied in manually.
+const EXTERNAL_MODULES = ['better-sqlite3', 'ffmpeg-static', 'adm-zip'];
+
+function collectDependencies(name: string, seen: Set<string>): void {
+  if (seen.has(name)) return;
+  const pkgJsonPath = path.resolve('node_modules', name, 'package.json');
+  if (!fs.existsSync(pkgJsonPath)) return; // optional / platform-specific dep not installed
+  seen.add(name);
+  const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
+  for (const dep of Object.keys(pkg.dependencies ?? {})) collectDependencies(dep, seen);
+}
 
 const config: ForgeConfig = {
   packagerConfig: {
     asar: {
-      unpack: '**/node_modules/better-sqlite3/**',
+      unpack: '**/node_modules/{better-sqlite3,ffmpeg-static}/**',
     },
   },
   rebuildConfig: {
     onlyModules: ['better-sqlite3'],
   },
+  // Windows only: the app depends on whisper-cli.exe and Squirrel.Windows auto-update.
+  hooks: {
+    // Runs before the native-module rebuild, so better-sqlite3 is rebuilt for Electron.
+    packageAfterCopy: async (_config, buildPath) => {
+      const modules = new Set<string>();
+      EXTERNAL_MODULES.forEach((m) => collectDependencies(m, modules));
+      for (const name of modules) {
+        const dest = path.join(buildPath, 'node_modules', name);
+        await fs.promises.cp(path.resolve('node_modules', name), dest, { recursive: true });
+      }
+    },
+  },
   makers: [
-    new MakerSquirrel({}),
-    new MakerZIP({}, ['darwin']),
-    new MakerRpm({}),
-    new MakerDeb({}),
+    new MakerSquirrel({
+      name: 'mempill_language',
+      setupExe: 'MemPillLanguage-Setup.exe',
+    }),
+  ],
+  publishers: [
+    // Uploads installer + RELEASES + nupkg to a GitHub Release tagged v<package.json version>.
+    // Needs GITHUB_TOKEN in the environment (provided by the release workflow).
+    new PublisherGithub({
+      repository: { owner: 'Rezve', name: 'mempill-language' },
+      prerelease: false,
+      draft: false,
+      generateReleaseNotes: true,
+    }),
   ],
   plugins: [
     new VitePlugin({

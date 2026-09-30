@@ -6,6 +6,7 @@ import { registerTranscriptionHandlers } from './transcription.ipc';
 import { registerAnalysisHandlers } from './analysis.ipc';
 import { registerPrerequisitesHandlers } from './prerequisites.ipc';
 import { registerWindowHandlers } from './window.ipc';
+import { registerUpdateHandlers } from './update.ipc';
 
 export function registerAllIpcHandlers(mainWindow: BrowserWindow): void {
   registerDatabaseHandlers();
@@ -15,4 +16,5 @@ export function registerAllIpcHandlers(mainWindow: BrowserWindow): void {
   registerAnalysisHandlers(mainWindow);
   registerPrerequisitesHandlers(mainWindow);
   registerWindowHandlers(mainWindow);
+  registerUpdateHandlers(mainWindow);
 }

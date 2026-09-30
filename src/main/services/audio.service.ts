@@ -11,7 +11,8 @@ function getFFmpegPath(): string {
     // ffmpeg-static provides the binary path
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const ffmpegPath = require('ffmpeg-static');
-    return ffmpegPath;
+    // Executables cannot run from inside app.asar; forge unpacks ffmpeg-static beside it.
+    return String(ffmpegPath).replace('app.asar', 'app.asar.unpacked');
   } catch {
     return 'ffmpeg'; // fallback to system ffmpeg
   }

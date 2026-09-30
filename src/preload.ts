@@ -10,9 +10,21 @@ import type {
   DownloadProgressEvent,
   AnalysisBatchEvent,
   WhisperBinaryVariant,
+  UpdateStatus,
 } from './shared/types';
 
 const electronAPI: ElectronAPI = {
+  // Updates
+  getAppVersion: () => ipcRenderer.invoke(IPC_CHANNELS.GET_APP_VERSION),
+  checkForUpdates: () => ipcRenderer.invoke(IPC_CHANNELS.CHECK_FOR_UPDATES),
+  installUpdate: () => ipcRenderer.invoke(IPC_CHANNELS.INSTALL_UPDATE),
+  getUpdateStatus: () => ipcRenderer.invoke(IPC_CHANNELS.GET_UPDATE_STATUS),
+  onUpdateStatus: (callback: (status: UpdateStatus) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: UpdateStatus) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.UPDATE_STATUS, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.UPDATE_STATUS, handler);
+  },
+
   // Audio
   saveAudioChunk: (meetingId: string, chunkIndex: number, buffer: ArrayBuffer, prefix?: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.SAVE_AUDIO_CHUNK, meetingId, chunkIndex, buffer, prefix),

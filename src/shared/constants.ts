@@ -92,7 +92,14 @@ export const IPC_CHANNELS = {
   WINDOW_CLOSE: 'window:close',
   WINDOW_IS_MAXIMIZED: 'window:is-maximized',
 
+  // Updates
+  GET_APP_VERSION: 'app:get-version',
+  CHECK_FOR_UPDATES: 'update:check',
+  INSTALL_UPDATE: 'update:install',
+  GET_UPDATE_STATUS: 'update:get-status',
+
   // Events
+  UPDATE_STATUS: 'event:update-status',
   PROGRESS: 'event:progress',
   DOWNLOAD_PROGRESS: 'event:download-progress',
   ANALYSIS_BATCH_READY: 'event:analysis-batch-ready',
