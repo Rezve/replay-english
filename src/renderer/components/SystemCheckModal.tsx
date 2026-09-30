@@ -1,21 +1,27 @@
 import React, { useEffect, useState } from 'react';
 import { CheckCircle, XCircle, Loader2, Download, X, AlertTriangle } from 'lucide-react';
 import { api } from '../lib/api';
+import { WhisperModelSelect } from './WhisperModelSelect';
+import { WHISPER_MODEL_CATALOG } from '../../shared/constants';
 import type { ModelCheckResult, DownloadProgressEvent } from '../../shared/types';
+
+const OLLAMA_MODELS = ['qwen2.5:7b', 'phi3:3.8b', 'llama3.1:8b'];
 
 interface SystemCheckModalProps {
   whisperModel: string;
   ollamaModel: string;
   onClose: () => void;
+  /** Called after the user switches model in the popup; the choice is already saved. */
+  onModelsChanged?: (models: { whisperModel: string; ollamaModel: string }) => void;
 }
 
-const WHISPER_MODEL_SIZES: Record<string, string> = {
-  'ggml-base.en.bin': '~148 MB',
-  'ggml-small.en.bin': '~488 MB',
-  'ggml-medium.en.bin': '~1.5 GB',
-};
+const whisperSize = (file: string) =>
+  WHISPER_MODEL_CATALOG.find(m => m.file === file)?.size ?? 'unknown size';
 
-export function SystemCheckModal({ whisperModel, ollamaModel, onClose }: SystemCheckModalProps) {
+export function SystemCheckModal({ whisperModel: initialWhisper, ollamaModel: initialOllama, onClose, onModelsChanged }: SystemCheckModalProps) {
+  const [whisperModel, setWhisperModel] = useState(initialWhisper);
+  const [ollamaModel, setOllamaModel] = useState(initialOllama);
+  const [downloadsVersion, setDownloadsVersion] = useState(0);
   const [status, setStatus] = useState<ModelCheckResult | null>(null);
   const [checking, setChecking] = useState(true);
   const [downloadingWhisper, setDownloadingWhisper] = useState(false);
@@ -42,12 +48,25 @@ export function SystemCheckModal({ whisperModel, ollamaModel, onClose }: SystemC
     return unsubscribe;
   }, [whisperModel, ollamaModel]);
 
+  const changeModels = async (next: { whisperModel: string; ollamaModel: string }) => {
+    setWhisperModel(next.whisperModel);
+    setOllamaModel(next.ollamaModel);
+    try {
+      const current = await api.getSettings();
+      await api.updateSettings({ ...current, ...next });
+      onModelsChanged?.(next);
+    } catch (err: any) {
+      setError(`Failed to save model selection: ${err.message}`);
+    }
+  };
+
   const handleDownloadWhisper = async () => {
     setDownloadingWhisper(true);
     setDownloadProgress(null);
     setError(null);
     try {
       await api.downloadWhisperModel(whisperModel);
+      setDownloadsVersion(v => v + 1);
       await runCheck();
     } catch (err: any) {
       setError(`Failed to download Whisper model: ${err.message}`);
@@ -110,7 +129,15 @@ export function SystemCheckModal({ whisperModel, ollamaModel, onClose }: SystemC
                 }
                 <span className="text-white font-medium text-sm">Whisper Model</span>
               </div>
-              <p className="text-slate-400 text-xs ml-[26px]">{whisperModel}</p>
+              <div className="ml-[26px] mt-1">
+                <WhisperModelSelect
+                  value={whisperModel}
+                  refreshKey={downloadsVersion}
+                  disabled={downloadingWhisper}
+                  onChange={m => changeModels({ whisperModel: m, ollamaModel })}
+                  className="w-full px-2 py-1.5 bg-navy-900 border border-navy-700 rounded text-white text-xs disabled:opacity-50"
+                />
+              </div>
               {status.whisperModel.available ? (
                 <p className="text-green-400 text-xs ml-[26px] mt-1">Ready to use</p>
               ) : (
@@ -136,7 +163,7 @@ export function SystemCheckModal({ whisperModel, ollamaModel, onClose }: SystemC
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-colors"
                     >
                       <Download size={14} />
-                      Download ({WHISPER_MODEL_SIZES[whisperModel] || 'unknown size'})
+                      Download (~{whisperSize(whisperModel)})
                     </button>
                   )}
                 </div>
@@ -152,7 +179,18 @@ export function SystemCheckModal({ whisperModel, ollamaModel, onClose }: SystemC
                 }
                 <span className="text-white font-medium text-sm">Ollama Model</span>
               </div>
-              <p className="text-slate-400 text-xs ml-[26px]">{ollamaModel}</p>
+              <div className="ml-[26px] mt-1">
+                <select
+                  value={ollamaModel}
+                  disabled={pullingOllama}
+                  onChange={e => changeModels({ whisperModel, ollamaModel: e.target.value })}
+                  className="w-full px-2 py-1.5 bg-navy-900 border border-navy-700 rounded text-white text-xs disabled:opacity-50"
+                >
+                  {[...new Set([...OLLAMA_MODELS, ollamaModel])].map(m => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              </div>
               {!status.ollamaModel.ollamaRunning ? (
                 <p className="text-orange-400 text-xs ml-[26px] mt-1">
                   Ollama is not running. Start Ollama first.

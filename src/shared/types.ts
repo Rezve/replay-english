@@ -256,6 +256,7 @@ export interface ElectronAPI {
   // Prerequisites
   checkPrerequisites(): Promise<PrerequisiteStatus>;
   checkModelStatus(whisperModel: string, ollamaModel: string): Promise<ModelCheckResult>;
+  listWhisperModels(): Promise<string[]>;
   downloadWhisperModel(modelName?: string): Promise<void>;
   downloadWhisperBinary(variant: WhisperBinaryVariant): Promise<void>;
   pullOllamaModel(modelName: string): Promise<void>;

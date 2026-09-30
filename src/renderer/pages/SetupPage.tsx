@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { CheckCircle, XCircle, Loader2, RefreshCw, Download, Cpu, Zap } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
+import { WhisperModelSelect } from '../components/WhisperModelSelect';
+import { WHISPER_MODEL_CATALOG } from '../../shared/constants';
 import type { PrerequisiteStatus, DownloadProgressEvent, GpuInfo, WhisperBinaryVariant, AppSettings } from '../../shared/types';
 
 type CheckStatus = 'checking' | 'ok' | 'error';
@@ -104,6 +106,18 @@ export function SetupPage() {
     }
   };
 
+  const changeWhisperModel = async (model: string) => {
+    if (!appSettings) return;
+    const updated = { ...appSettings, whisperModel: model };
+    setAppSettings(updated);
+    try {
+      await api.updateSettings(updated);
+    } catch (err) {
+      console.error('Failed to save model selection:', err);
+    }
+    await runChecks();
+  };
+
   const downloadWhisperModel = async () => {
     setDownloading(true);
     setDownloadProgress(null);
@@ -174,6 +188,18 @@ export function SetupPage() {
                   {(canDownloadModel || canDownloadBinary) && isDownloading && !downloadProgress && (
                     <p className="text-blue-400 text-xs mt-2">Starting download...</p>
                   )}
+                  {/* Whisper model picker */}
+                  {isWhisperModel && appSettings && (
+                    <div className="mt-2">
+                      <WhisperModelSelect
+                        value={appSettings.whisperModel}
+                        refreshKey={items}
+                        disabled={downloading}
+                        onChange={changeWhisperModel}
+                        className="w-full px-2 py-1.5 bg-navy-900 border border-navy-700 rounded text-white text-xs disabled:opacity-50"
+                      />
+                    </div>
+                  )}
                   {/* Whisper model download button */}
                   {canDownloadModel && !downloading && (
                     <button
@@ -181,7 +207,7 @@ export function SetupPage() {
                       className="mt-2 flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-colors"
                     >
                       <Download size={14} />
-                      Download Model (~148MB)
+                      Download Model (~{WHISPER_MODEL_CATALOG.find(m => m.file === appSettings?.whisperModel)?.size ?? 'size unknown'})
                     </button>
                   )}
                   {/* Whisper binary download buttons */}

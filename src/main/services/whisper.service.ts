@@ -35,6 +35,17 @@ export function getModelPath(modelName: string = 'ggml-base.en.bin'): string {
   return path.join(getModelDir(), modelName);
 }
 
+/** File names of every whisper model present in the models directory. */
+export function listDownloadedModels(): string[] {
+  try {
+    return fs.readdirSync(getModelDir())
+      .filter(f => /^ggml-.+\.bin$/i.test(f))
+      .sort((a, b) => a.localeCompare(b));
+  } catch {
+    return [];
+  }
+}
+
 export function isWhisperAvailable(): boolean {
   const binaryPath = getWhisperBinaryPath();
   return fs.existsSync(binaryPath);
@@ -111,6 +122,9 @@ export async function transcribeWav(
     '-oj',           // output JSON to file
     '-of', outputBase, // output file base path (without extension)
     '-np',           // no-prints (suppress console output)
+    '-mc', '0',      // don't carry text context between windows — prevents repetition loops
+    '-sns',          // suppress non-speech tokens ([MUSIC], (noise), ...)
+    '-nth', '0.6',   // no-speech threshold — skip silent windows instead of hallucinating
   ];
   if (translate) args.push('--translate');
 
@@ -188,12 +202,21 @@ export async function transcribeWav(
     console.warn('Failed to delete JSON file:', err.message);
   }
 
-  return output.transcription.map(seg => ({
-    startTime: seg.offsets.from / 1000, // ms to seconds
-    endTime: seg.offsets.to / 1000,
-    text: seg.text.trim(),
-    confidence: null, // whisper.cpp doesn't output confidence in JSON mode
-  }));
+  return (output.transcription ?? [])
+    .map(seg => ({
+      startTime: seg.offsets.from / 1000, // ms to seconds
+      endTime: seg.offsets.to / 1000,
+      text: seg.text.trim(),
+      confidence: null, // whisper.cpp doesn't output confidence in JSON mode
+    }))
+    .filter(seg => !isNonSpeech(seg.text));
+}
+
+// Whisper emits these for silence/noise; they are not real speech.
+const NON_SPEECH_PATTERN = /^[\s.,!?-]*(\[[^\]]*\]|\([^)]*\)|♪+|thanks for watching!?)?[\s.,!?-]*$/i;
+
+function isNonSpeech(text: string): boolean {
+  return NON_SPEECH_PATTERN.test(text);
 }
 
 const WHISPER_VERSION = 'v1.8.3';

@@ -55,7 +55,8 @@ export async function convertToWav(inputPath: string): Promise<string> {
 
   await execFileAsync(ffmpegPath, [
     '-i', inputPath,
-    '-ar', '16000',    // 16kHz sample rate (Whisper requirement)
+    '-af', 'highpass=f=80,dynaudnorm=f=150:g=15', // drop rumble, even out quiet mic levels
+    '-ar', '16000',   // 16kHz sample rate (Whisper requirement)
     '-ac', '1',        // mono
     '-f', 'wav',
     '-y',              // overwrite

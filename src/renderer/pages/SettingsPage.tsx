@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Check, Shield } from 'lucide-react';
 import { api } from '../lib/api';
 import { SystemCheckModal } from '../components/SystemCheckModal';
+import { WhisperModelSelect } from '../components/WhisperModelSelect';
 import type { AppSettings } from '../../shared/types';
 
 export function SettingsPage() {
@@ -88,22 +89,11 @@ export function SettingsPage() {
         {/* Whisper Model */}
         <div className="bg-navy-800 rounded-lg p-4">
           <h3 className="text-white font-medium mb-2">Whisper Model</h3>
-          <select
+          <WhisperModelSelect
             value={settings.whisperModel}
-            onChange={e => handleWhisperModelChange(e.target.value)}
-            className="w-full px-3 py-2 bg-navy-900 border border-navy-700 rounded-lg text-white text-sm"
-          >
-            <optgroup label="English-only (smaller, faster)">
-              <option value="ggml-base.en.bin">base.en (148 MB) — Fast, good accuracy</option>
-              <option value="ggml-small.en.bin">small.en (488 MB) — Slower, better accuracy</option>
-              <option value="ggml-medium.en.bin">medium.en (1.5 GB) — Slowest, best accuracy</option>
-            </optgroup>
-            <optgroup label="Multilingual (supports Bengali &amp; others)">
-              <option value="ggml-base.bin">base (148 MB) — Fast, multilingual</option>
-              <option value="ggml-small.bin">small (488 MB) — Better accuracy, multilingual</option>
-              <option value="ggml-medium.bin">medium (1.5 GB) — Best accuracy, multilingual</option>
-            </optgroup>
-          </select>
+            refreshKey={showModelCheck}
+            onChange={handleWhisperModelChange}
+          />
         </div>
 
         {/* Ollama Model */}
@@ -217,6 +207,7 @@ export function SettingsPage() {
           whisperModel={pendingWhisperModel}
           ollamaModel={pendingOllamaModel}
           onClose={() => setShowModelCheck(false)}
+          onModelsChanged={m => setSettings(prev => prev ? { ...prev, ...m } : prev)}
         />
       )}
     </div>

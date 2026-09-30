@@ -26,6 +26,15 @@ export const ERROR_CATEGORIES = {
   ],
 } as const;
 
+export const WHISPER_MODEL_CATALOG = [
+  { file: 'ggml-base.en.bin', label: 'base.en', size: '148 MB', multilingual: false, note: 'Fast, good accuracy' },
+  { file: 'ggml-small.en.bin', label: 'small.en', size: '488 MB', multilingual: false, note: 'Slower, better accuracy' },
+  { file: 'ggml-medium.en.bin', label: 'medium.en', size: '1.5 GB', multilingual: false, note: 'Slowest, best accuracy' },
+  { file: 'ggml-base.bin', label: 'base', size: '148 MB', multilingual: true, note: 'Fast, multilingual' },
+  { file: 'ggml-small.bin', label: 'small', size: '488 MB', multilingual: true, note: 'Better accuracy, multilingual' },
+  { file: 'ggml-medium.bin', label: 'medium', size: '1.5 GB', multilingual: true, note: 'Best accuracy, multilingual' },
+] as const;
+
 export const DEFAULT_SETTINGS = {
   whisperModel: 'ggml-base.en.bin',
   ollamaModel: 'qwen2.5:7b',
@@ -81,6 +90,7 @@ export const IPC_CHANNELS = {
   // Prerequisites
   CHECK_PREREQUISITES: 'prerequisites:check',
   CHECK_MODEL_STATUS: 'prerequisites:check-model-status',
+  LIST_WHISPER_MODELS: 'prerequisites:list-whisper-models',
   DOWNLOAD_WHISPER_MODEL: 'prerequisites:download-whisper-model',
   DOWNLOAD_WHISPER_BINARY: 'prerequisites:download-whisper-binary',
   PULL_OLLAMA_MODEL: 'prerequisites:pull-ollama-model',

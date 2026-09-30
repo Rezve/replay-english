@@ -42,6 +42,13 @@ const TAB_LABELS: Record<ReportTab, string> = {
   fluency: 'Fluency',
 };
 
+async function getMissingWhisperPart(): Promise<string | null> {
+  const prereqs = await api.checkPrerequisites();
+  if (!prereqs.whisperBinary) return 'The Whisper transcription engine is not installed.';
+  if (!prereqs.whisperModel) return 'The Whisper speech model is not downloaded.';
+  return null;
+}
+
 function formatTime(seconds: number): string {
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
@@ -82,6 +89,8 @@ export function ReportPage() {
   const [mistakeIndex, setMistakeIndex] = useState(0);
   const [progress, setProgress] = useState<ProgressEvent | null>(null);
   const [reanalyzing, setReanalyzing] = useState(false);
+  const [processingError, setProcessingError] = useState<string | null>(null);
+  const [needsSetup, setNeedsSetup] = useState(false);
   const [activeTab, setActiveTab] = useState<ReportTab>('line-by-line');
   const processingStartedRef = React.useRef(false);
 
@@ -113,6 +122,35 @@ export function ReportPage() {
       setMeeting(data);
     } finally {
       setReanalyzing(false);
+    }
+  };
+
+  const handleRetranscribe = async () => {
+    if (!meeting || !id) return;
+    if (meeting.segments.length > 0 &&
+        !confirm('Retranscribe this recording? The current transcript, mistakes and insights will be replaced.')) {
+      return;
+    }
+    setProcessingError(null);
+    setReanalyzing(true);
+    setSelectedMistake(null);
+    setMistakeIndex(0);
+    setMeeting(prev => prev ? { ...prev, status: 'transcribing', segments: [], mistakes: [], analyses: [], totalMistakes: 0, overallScore: null } : prev);
+    try {
+      const missing = await getMissingWhisperPart();
+      if (missing) {
+        setNeedsSetup(true);
+        throw new Error(missing);
+      }
+      setNeedsSetup(false);
+      await api.processMeeting(id);
+    } catch (err: any) {
+      console.error('Retranscription failed:', err);
+      setProcessingError(err?.message || 'Unknown error');
+    } finally {
+      setReanalyzing(false);
+      const data = await api.getMeeting(id);
+      setMeeting(data);
     }
   };
 
@@ -320,11 +358,11 @@ export function ReportPage() {
     const startProcessing = async (meetingId: string) => {
       try {
         // Check prerequisites before processing
-        const prereqs = await api.checkPrerequisites();
-        if (!prereqs.whisperModel) {
-          console.error('Whisper model not found - cannot transcribe');
+        const missing = await getMissingWhisperPart();
+        if (missing) {
           await api.updateMeetingStatus(meetingId, 'failed');
-          alert('Whisper model not found. Please download it from the Setup page before transcribing.');
+          setProcessingError(missing);
+          setNeedsSetup(true);
           loadMeeting();
           return;
         }
@@ -337,8 +375,12 @@ export function ReportPage() {
       } catch (err: any) {
         console.error('Processing failed:', err);
         const errorMsg = err?.message || 'Unknown error';
-        alert(`Transcription failed: ${errorMsg}`);
-        await api.updateMeetingStatus(meetingId, 'failed');
+        setProcessingError(errorMsg);
+        // The backend marks the meeting failed itself; only do it here if it died before that
+        const current = await api.getMeeting(meetingId);
+        if (current && current.status === 'transcribing') {
+          await api.updateMeetingStatus(meetingId, 'failed');
+        }
         loadMeeting();
       }
     };
@@ -611,6 +653,35 @@ export function ReportPage() {
         </div>
       )}
 
+      {/* Failed banner */}
+      {meeting.status === 'failed' && !isProcessing && (
+        <div className="flex-shrink-0 mb-4 bg-red-500/10 border border-red-500/20 rounded-lg p-4 flex items-center gap-3">
+          <AlertTriangle size={20} className="text-red-400 flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-red-300 font-medium">Transcription failed</p>
+            <p className="text-red-400/60 text-sm break-words">
+              {processingError || 'Processing did not finish. The recording is still saved — you can try again.'}
+              {needsSetup && ' Download it on the Setup page, then press Retry — your recording is safe.'}
+            </p>
+          </div>
+          <button
+            onClick={handleRetranscribe}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors flex-shrink-0"
+          >
+            <RefreshCw size={14} />
+            Retry
+          </button>
+          {needsSetup && (
+            <button
+              onClick={() => navigate('/setup')}
+              className="px-3 py-1.5 text-sm bg-navy-700 hover:bg-navy-600 text-white rounded-lg transition-colors flex-shrink-0"
+            >
+              Open Setup
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Transcribed but not analyzed banner */}
       {meeting.status === 'transcribed' && !isProcessing && (
         <div className="flex-shrink-0 mb-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-4 flex items-center gap-3">
@@ -664,6 +735,17 @@ export function ReportPage() {
                     <Download size={12} />
                     Export Transcript
                   </button>
+                  {(meeting.status === 'completed' || meeting.status === 'failed' || meeting.status === 'transcribed') && (
+                    <button
+                      onClick={handleRetranscribe}
+                      disabled={reanalyzing || runningTab !== null}
+                      title="Discard this transcript and transcribe the recording again"
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-navy-700 hover:bg-navy-600 text-slate-300 hover:text-white rounded-lg transition-colors disabled:opacity-50"
+                    >
+                      <RefreshCw size={12} />
+                      Retranscribe
+                    </button>
+                  )}
                   {(meeting.status === 'completed' || meeting.status === 'failed') && (
                     <button
                       onClick={handleReAnalyze}

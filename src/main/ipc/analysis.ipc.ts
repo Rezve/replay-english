@@ -91,33 +91,87 @@ export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
         paths.push(...fallbackPaths);
       }
 
-      // Phase 1: Transcription
-      for (let i = 0; i < paths.length; i++) {
-        mainWindow.webContents.send(IPC_CHANNELS.PROGRESS, {
-          stage: 'transcribing',
-          current: i + 1,
-          total: paths.length,
-          message: `Converting and transcribing chunk ${i + 1} of ${paths.length}...`,
-        });
+      // Phase 1: Transcription. Clear anything from a previous (failed or
+      // unsatisfactory) run first so this handler doubles as "retranscribe".
+      await db.delete(pipelineSchema.mistakes).where(eq(pipelineSchema.mistakes.meetingId, meetingId));
+      await db.delete(pipelineSchema.meetingAnalyses).where(eq(pipelineSchema.meetingAnalyses.meetingId, meetingId));
+      await db.delete(pipelineSchema.transcriptSegments).where(eq(pipelineSchema.transcriptSegments.meetingId, meetingId));
+      await db.update(pipelineSchema.meetings)
+        .set({ status: 'transcribing', totalSegments: 0, totalMistakes: 0, overallScore: null })
+        .where(eq(pipelineSchema.meetings.id, meetingId));
 
-        const wavPath = await convertToWav(paths[i]);
-        const chunkOffset = i * 300;
-        const segments = await transcribeWav(wavPath, whisperModel);
+      const language = settingsMap['transcriptionLanguage'] || DEFAULT_SETTINGS.transcriptionLanguage;
 
-        for (const seg of segments) {
-          const segment: TranscriptSegment = {
-            id: uuidv4(),
-            meetingId,
-            chunkIndex: i,
-            segmentIndex: globalSegmentIndex++,
-            startTime: seg.startTime + chunkOffset,
-            endTime: seg.endTime + chunkOffset,
-            text: seg.text,
-            confidence: seg.confidence,
-          };
-          await db.insert(pipelineSchema.transcriptSegments).values(segment);
-          allSegments.push(segment);
+      const transcribePaths = async (chunkList: string[]) => {
+        for (let i = 0; i < chunkList.length; i++) {
+          mainWindow.webContents.send(IPC_CHANNELS.PROGRESS, {
+            stage: 'transcribing',
+            current: i + 1,
+            total: chunkList.length,
+            message: `Converting and transcribing chunk ${i + 1} of ${chunkList.length}...`,
+          });
+
+          const chunkOffset = i * 300;
+          // Retry once per chunk — transient ffmpeg/whisper failures are common
+          let segments: Awaited<ReturnType<typeof transcribeWav>> = [];
+          let translated: typeof segments = [];
+          for (let attempt = 1; ; attempt++) {
+            try {
+              const wavPath = await convertToWav(chunkList[i]);
+              segments = await transcribeWav(wavPath, whisperModel, language);
+              if (language !== 'en') {
+                translated = await transcribeWav(wavPath, whisperModel, language, true);
+              }
+              break;
+            } catch (err: any) {
+              if (attempt >= 2) {
+                throw new Error(`Chunk ${i + 1} of ${chunkList.length} failed: ${err?.message || err}`);
+              }
+              console.warn(`Chunk ${i + 1} failed (attempt ${attempt}), retrying:`, err?.message);
+            }
+          }
+
+          for (let s = 0; s < segments.length; s++) {
+            const seg = segments[s];
+            const segment: TranscriptSegment = {
+              id: uuidv4(),
+              meetingId,
+              chunkIndex: i,
+              segmentIndex: globalSegmentIndex++,
+              startTime: seg.startTime + chunkOffset,
+              endTime: seg.endTime + chunkOffset,
+              text: seg.text,
+              translatedText: translated[s]?.text ?? null,
+              confidence: seg.confidence,
+            };
+            await db.insert(pipelineSchema.transcriptSegments).values(segment);
+            allSegments.push(segment);
+          }
         }
+      };
+
+      try {
+        await transcribePaths(paths);
+
+        // The mic-only track can come out silent (wrong input device, mic
+        // captured nothing) while the mixed track still has audio — fall back to it.
+        if (allSegments.length === 0 && !(chunkPaths && chunkPaths.length > 0)) {
+          const mixedPaths = getChunkPaths(meetingId);
+          if (mixedPaths.length > 0 && mixedPaths.join() !== paths.join()) {
+            console.warn('Mic-only track had no speech; falling back to the mixed recording');
+            globalSegmentIndex = 0;
+            await transcribePaths(mixedPaths);
+          }
+        }
+
+        if (allSegments.length === 0) {
+          throw new Error('No speech was detected in the recording. Check that the correct microphone is selected and the level meter moves while you speak, then record again.');
+        }
+      } catch (err) {
+        await db.update(pipelineSchema.meetings)
+          .set({ status: 'failed' })
+          .where(eq(pipelineSchema.meetings.id, meetingId));
+        throw err;
       }
 
       // Determine which analyses are enabled
