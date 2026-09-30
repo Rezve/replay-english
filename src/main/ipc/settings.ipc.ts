@@ -28,6 +28,7 @@ export function registerSettingsHandlers() {
       analysisVocabulary: settingsMap['analysisVocabulary'] !== 'false',
       analysisFluency: settingsMap['analysisFluency'] !== 'false',
       grammarMode: (settingsMap['grammarMode'] === 'conversational' ? 'conversational' : 'professional') as AppSettings['grammarMode'],
+      skipStartupCheck: settingsMap['skipStartupCheck'] === 'true',
     } as AppSettings;
   });
 

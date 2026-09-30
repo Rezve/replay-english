@@ -160,6 +160,7 @@ export interface AppSettings {
   analysisVocabulary: boolean;
   analysisFluency: boolean;
   grammarMode: 'professional' | 'conversational';
+  skipStartupCheck: boolean;
 }
 
 export interface ProgressEvent {

@@ -13,12 +13,14 @@ interface SystemCheckModalProps {
   onClose: () => void;
   /** Called after the user switches model in the popup; the choice is already saved. */
   onModelsChanged?: (models: { whisperModel: string; ollamaModel: string }) => void;
+  /** Show the "don't check on startup" checkbox (used for the automatic launch check). */
+  showSkipOption?: boolean;
 }
 
 const whisperSize = (file: string) =>
   WHISPER_MODEL_CATALOG.find(m => m.file === file)?.size ?? 'unknown size';
 
-export function SystemCheckModal({ whisperModel: initialWhisper, ollamaModel: initialOllama, onClose, onModelsChanged }: SystemCheckModalProps) {
+export function SystemCheckModal({ whisperModel: initialWhisper, ollamaModel: initialOllama, onClose, onModelsChanged, showSkipOption }: SystemCheckModalProps) {
   const [whisperModel, setWhisperModel] = useState(initialWhisper);
   const [ollamaModel, setOllamaModel] = useState(initialOllama);
   const [downloadsVersion, setDownloadsVersion] = useState(0);
@@ -28,6 +30,7 @@ export function SystemCheckModal({ whisperModel: initialWhisper, ollamaModel: in
   const [pullingOllama, setPullingOllama] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState<DownloadProgressEvent | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [skipNextTime, setSkipNextTime] = useState(false);
 
   const runCheck = async () => {
     setChecking(true);
@@ -57,6 +60,16 @@ export function SystemCheckModal({ whisperModel: initialWhisper, ollamaModel: in
       onModelsChanged?.(next);
     } catch (err: any) {
       setError(`Failed to save model selection: ${err.message}`);
+    }
+  };
+
+  const toggleSkip = async (checked: boolean) => {
+    setSkipNextTime(checked);
+    try {
+      const current = await api.getSettings();
+      await api.updateSettings({ ...current, skipStartupCheck: checked });
+    } catch (err: any) {
+      setError(`Failed to save preference: ${err.message}`);
     }
   };
 
@@ -219,7 +232,18 @@ export function SystemCheckModal({ whisperModel: initialWhisper, ollamaModel: in
           </div>
         )}
 
-        <div className="mt-5 flex justify-end">
+        <div className="mt-5 flex items-center justify-between gap-3">
+          {showSkipOption ? (
+            <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={skipNextTime}
+                onChange={e => toggleSkip(e.target.checked)}
+                className="accent-blue-600"
+              />
+              Don't check on startup
+            </label>
+          ) : <span />}
           <button
             onClick={onClose}
             disabled={downloadingWhisper || pullingOllama}

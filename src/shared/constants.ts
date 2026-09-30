@@ -48,6 +48,7 @@ export const DEFAULT_SETTINGS = {
   analysisVocabulary: true,
   analysisFluency: true,
   grammarMode: 'professional',
+  skipStartupCheck: false,
 } as const;
 
 export const IPC_CHANNELS = {
