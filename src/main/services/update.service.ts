@@ -4,7 +4,7 @@ import type { UpdateStatus } from '../../shared/types';
 
 // Public GitHub repo whose Releases host the Squirrel.Windows artifacts.
 // update.electronjs.org proxies them in the format Squirrel expects.
-const GITHUB_REPO = 'Rezve/mempill-language';
+const GITHUB_REPO = 'Rezve/replay-english';
 const CHECK_INTERVAL_MS = 60 * 60 * 1000;
 
 let status: UpdateStatus = { state: 'idle' };

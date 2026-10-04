@@ -140,7 +140,7 @@ export function SetupPage() {
   return (
     <div className="flex items-center justify-center h-screen bg-navy-900">
       <div className="max-w-lg w-full p-8">
-        <h1 className="text-3xl font-bold text-white mb-2">MemPill Language</h1>
+        <h1 className="text-3xl font-bold text-white mb-2">Replay English</h1>
         <p className="text-slate-400 mb-8">
           Let's check that everything is set up correctly
         </p>

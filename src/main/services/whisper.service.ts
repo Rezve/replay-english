@@ -246,7 +246,7 @@ function downloadFile(
   return new Promise((resolve, reject) => {
     const doRequest = (requestUrl: string) => {
       const protocol = requestUrl.startsWith('https') ? https : http;
-      protocol.get(requestUrl, { headers: { 'User-Agent': 'MemPill-Language/1.0' } }, (response) => {
+      protocol.get(requestUrl, { headers: { 'User-Agent': 'Replay-English/1.0' } }, (response) => {
         if (response.statusCode === 301 || response.statusCode === 302) {
           const redirectUrl = response.headers.location;
           if (redirectUrl) {

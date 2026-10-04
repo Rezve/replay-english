@@ -8,9 +8,9 @@ import path from 'node:path';
 import { check, section, finish, makeTempDir } from './harness';
 
 // Point the app's database at a throwaway file before anything opens it.
-const tmp = makeTempDir('mempill-patterns-');
+const tmp = makeTempDir('replay-patterns-');
 app.setPath('userData', tmp);
-const dbPath = path.join(tmp, 'mempill.db');
+const dbPath = path.join(tmp, 'replay.db');
 
 async function main() {
   const { applySchema } = await import('../../src/main/db/apply-schema');

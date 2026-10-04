@@ -7,7 +7,7 @@ import path from 'node:path';
 import { applySchema, TARGET_SCHEMA_VERSION } from '../../src/main/db/apply-schema';
 import { check, section, finish, makeTempDir } from './harness';
 
-const tmp = makeTempDir('mempill-schema-');
+const tmp = makeTempDir('replay-schema-');
 const count = (db: Database.Database, sql: string) =>
   (db.prepare(sql).get() as { c: number }).c;
 

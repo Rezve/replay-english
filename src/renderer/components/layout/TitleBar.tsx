@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Minus, Square, X, Maximize2 } from 'lucide-react';
 import { api } from '../../lib/api';
+import appIcon from '../../../../resources/icon/icon.svg';
 
 export function TitleBar() {
   const [isMaximized, setIsMaximized] = useState(false);
@@ -24,8 +25,8 @@ export function TitleBar() {
     >
       {/* App identity */}
       <div className="flex items-center gap-2 px-4">
-        <div className="w-3 h-3 rounded-full bg-blue-500 opacity-80" />
-        <span className="text-xs font-semibold text-slate-300 tracking-wide">MemPill Language</span>
+        <img src={appIcon} alt="" className="w-4 h-4" draggable={false} />
+        <span className="text-xs font-semibold text-slate-300 tracking-wide">Replay English</span>
       </div>
 
       {/* Window controls */}

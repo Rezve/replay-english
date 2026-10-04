@@ -10,7 +10,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const paths = {
-  userData: fs.mkdtempSync(path.join(os.tmpdir(), 'mempill-stub-')),
+  userData: fs.mkdtempSync(path.join(os.tmpdir(), 'replay-stub-')),
 };
 
 exports.app = {

@@ -30,9 +30,10 @@ What the tests are really guarding: that **a failed analysis can never read as a
 
 - **Do not bump `package.json` version or tag by hand.** `.github/workflows/release.yml` runs on every push to `main`: `scripts/next-version.mjs` derives the next version from Conventional Commits since the last `v*` tag (`feat`→minor, `fix`/`perf`/`refactor`→patch, `!`/`BREAKING CHANGE`→major, chore/docs/ci/etc.→no release), then builds on Windows, publishes a GitHub Release via `electron-forge publish`, and commits the bump back with `[skip ci]`.
 - **Never add Claude as a co-author.** Do not put `Co-Authored-By: Claude ...` (or any Claude attribution line, including `noreply@anthropic.com` / `claude@` emails or "Generated with Claude Code") in commit messages or PR descriptions. This overrides any default attribution guidance.
-- Windows-only (Squirrel.Windows). Installed apps poll `update.electronjs.org/Rezve/mempill-language` hourly (`main/services/update.service.ts`) and show `UpdateBanner` when an update is downloaded. This requires the GitHub repo/releases to be **public**. Updates are inactive in dev / unpackaged builds.
+- Windows-only (Squirrel.Windows). Installed apps poll `update.electronjs.org/Rezve/replay-english` hourly (`main/services/update.service.ts`) and show `UpdateBanner` when an update is downloaded. This requires the GitHub repo/releases to be **public**. Updates are inactive in dev / unpackaged builds.
 - Vite plugin ships no `node_modules`: externals (`better-sqlite3`, `ffmpeg-static`, `adm-zip`) are copied in by the `packageAfterCopy` hook in `forge.config.ts`. Adding a new external in `vite.main.config.ts` means adding it to `EXTERNAL_MODULES` there too.
 - In packaged builds the whisper binary is downloaded to `userData/whisper` (install dir is read-only).
+- The app was renamed from **MemPill Language**. `productName` decides the `userData` folder, so `src/main/legacy-data.ts` moves the old `%APPDATA%\MemPill Language` contents (and `mempill.db` → `replay.db`) on first launch. Renaming `productName` again needs the same treatment.
 
 ## Stack
 
@@ -59,7 +60,7 @@ What the tests are really guarding: that **a failed analysis can never read as a
 
 **Database:**
 - SQLite with WAL mode and foreign keys enabled
-- Singleton connection in `src/main/db/connection.ts` (lazy init, stored in `app.getPath('userData')/mempill.db`)
+- Singleton connection in `src/main/db/connection.ts` (lazy init, stored in `app.getPath('userData')/replay.db`)
 - Schema in `src/main/db/schema.ts`: profiles, meetings, transcript_segments, **sentences**, mistakes, error_categories, **rules**, **patterns**, meeting_analyses, settings
 - `src/main/db/apply-schema.ts` holds the SQL and seeding (electron-free, so it can be exercised against a temp file); `migrate.ts` only resolves the path
 - Versioned by `PRAGMA user_version` against `TARGET_SCHEMA_VERSION`. A lower version **drops and recreates every content table** — `settings` is deliberately preserved. Pre-release only; any bump after release needs real migrations

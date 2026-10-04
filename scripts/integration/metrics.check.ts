@@ -7,9 +7,9 @@ import Database from 'better-sqlite3';
 import path from 'node:path';
 import { check, section, finish, makeTempDir } from './harness';
 
-const tmp = makeTempDir('mempill-metrics-');
+const tmp = makeTempDir('replay-metrics-');
 app.setPath('userData', tmp);
-const dbPath = path.join(tmp, 'mempill.db');
+const dbPath = path.join(tmp, 'replay.db');
 
 async function main() {
   const { applySchema } = await import('../../src/main/db/apply-schema');

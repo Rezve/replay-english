@@ -25,6 +25,9 @@ function collectDependencies(name: string, seen: Set<string>): void {
 
 const config: ForgeConfig = {
   packagerConfig: {
+    // Extension omitted on purpose: packager picks icon.ico on Windows.
+    // Regenerate from icon.svg with `npx electron scripts/build-icon.cjs`.
+    icon: 'resources/icon/icon',
     asar: {
       unpack: '**/node_modules/{better-sqlite3,ffmpeg-static}/**',
     },
@@ -51,15 +54,18 @@ const config: ForgeConfig = {
   },
   makers: [
     new MakerSquirrel({
-      name: 'mempill_language',
-      setupExe: 'MemPillLanguage-Setup.exe',
+      name: 'replay_english',
+      setupExe: 'ReplayEnglish-Setup.exe',
+      setupIcon: 'resources/icon/icon.ico',
+      // Shown in "Apps & features"; Squirrel only accepts a URL here.
+      iconUrl: 'https://raw.githubusercontent.com/Rezve/replay-english/main/resources/icon/icon.ico',
     }),
   ],
   publishers: [
     // Uploads installer + RELEASES + nupkg to a GitHub Release tagged v<package.json version>.
     // Needs GITHUB_TOKEN in the environment (release workflow, or .env locally).
     new PublisherGithub({
-      repository: { owner: 'Rezve', name: 'mempill-language' },
+      repository: { owner: 'Rezve', name: 'replay-english' },
       prerelease: false,
       draft: false,
       generateReleaseNotes: true,

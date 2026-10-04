@@ -5,6 +5,7 @@ import { registerAllIpcHandlers } from './main/ipc';
 import { runMigrations } from './main/db/migrate';
 import { closeDb } from './main/db/connection';
 import { migrateAudioStorage, cleanupOrphanAudio } from './main/services/audio.service';
+import { migrateLegacyUserData } from './main/legacy-data';
 
 if (started) {
   app.quit();
@@ -20,7 +21,9 @@ const createWindow = () => {
     height: 800,
     minWidth: 900,
     minHeight: 600,
-    title: 'MemPill Language',
+    title: 'Replay English',
+    // Packaged builds take the taskbar icon from the exe; dev runs electron.exe, which has its own.
+    icon: app.isPackaged ? undefined : path.join(app.getAppPath(), 'resources/icon/icon.ico'),
     frame: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -46,6 +49,7 @@ const createWindow = () => {
 };
 
 app.on('ready', () => {
+  migrateLegacyUserData();
   const { reset } = runMigrations();
   migrateAudioStorage();
 
