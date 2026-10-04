@@ -5,13 +5,26 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-npm run start      # Dev server with hot reload
-npm run package    # Package app for distribution
-npm run make       # Create distributable installers
-npm run lint       # ESLint on .ts/.tsx files
+npm run start            # Dev server with hot reload
+npm run package          # Package app for distribution
+npm run make             # Create distributable installers
+npm run lint             # ESLint on .ts/.tsx files
+npm test                 # Vitest unit tests (src/shared/**/*.test.ts)
+npm run test:watch       # Vitest in watch mode
+npm run test:integration # Database/service checks, under Electron
+npm run test:all         # Both
 ```
 
-No test framework is configured.
+## Tests
+
+Two tiers, split by a hard constraint rather than by preference:
+
+- **Unit tests** — `src/shared/**/*.test.ts`, run by Vitest (`vitest.config.ts`). Covers the pure logic both processes import: the sentence splitter, span location and segmentation, the metric formatter, transcript chunking, and the rule-vocabulary invariants. Fast, no native dependencies.
+- **Integration checks** — `scripts/integration/*.check.ts`, run by `scripts/integration/run.mjs`. These open the database, and `better-sqlite3` is a native module built against **Electron's** ABI; importing it from plain Node fails with `NODE_MODULE_VERSION` mismatch. So each suite is bundled with esbuild and executed with the Electron binary. `electron` is aliased to `electron-stub.cjs`, which points `app.getPath('userData')` at a temp directory — a check can never touch the real database.
+
+Run one suite with `node scripts/integration/run.mjs patterns`. Add a suite by dropping `<name>.check.ts` beside the others; the runner discovers it. Assertions come from `harness.ts`, not a framework, because no framework can run in that environment.
+
+What the tests are really guarding: that **a failed analysis can never read as a good one** (`metrics.check.ts`), that **the same habit in different words collapses to one pattern** (`patterns.check.ts`), and that a schema-version bump resets cleanly while preserving settings (`schema.check.ts`).
 
 ## Releases & auto-update
 
@@ -47,25 +60,38 @@ No test framework is configured.
 **Database:**
 - SQLite with WAL mode and foreign keys enabled
 - Singleton connection in `src/main/db/connection.ts` (lazy init, stored in `app.getPath('userData')/mempill.db`)
-- Schema in `src/main/db/schema.ts`: profiles, meetings, transcript_segments, mistakes, error_categories, settings
-- Manual SQL migrations in `src/main/db/migrate.ts` (no Drizzle Kit in production) — seeds error categories on first run
+- Schema in `src/main/db/schema.ts`: profiles, meetings, transcript_segments, **sentences**, mistakes, error_categories, **rules**, **patterns**, meeting_analyses, settings
+- `src/main/db/apply-schema.ts` holds the SQL and seeding (electron-free, so it can be exercised against a temp file); `migrate.ts` only resolves the path
+- Versioned by `PRAGMA user_version` against `TARGET_SCHEMA_VERSION`. A lower version **drops and recreates every content table** — `settings` is deliberately preserved. Pre-release only; any bump after release needs real migrations
+- Categories and rules are seeded with `ON CONFLICT(slug/key) DO UPDATE`, so adding one to `shared/constants.ts` backfills on next launch
 
 **Services** (`src/main/services/*.service.ts`):
 - `whisper.service.ts`: Runs `resources/whisper/whisper-cli.exe`, outputs JSON. Dev vs prod paths differ.
-- `ollama.service.ts`: Calls local Ollama (`localhost:11434`). Batches 12 segments per LLM call.
-- `audio.service.ts`: FFmpeg converts WebM→16kHz mono WAV. Chunks stored in `userData/temp/{meetingId}/`.
-- `analysis.service.ts`: Orchestrates batch analysis, calculates weighted score (major=3, moderate=2, minor=1).
+- `settings.service.ts`: The only typed reader of the `settings` table (cached; `invalidate()` on write). `analysesFor`/`grammarModeFor` resolve what to run per recording mode.
+- `ollama.service.ts`: Calls Ollama at the configurable `ollamaHost`. Every call returns `LlmResult<T>` — never `[]`/`null` — with 3 attempts and backoff, and an explicit `num_ctx`. Long transcripts are chunked on paragraph boundaries and merged per analysis type.
+- `audio.service.ts`: FFmpeg converts WebM→16kHz mono WAV. Chunks stored in `userData/recordings/{meetingId}/`. `getWavDurationSeconds` reads the RIFF header so segment timestamps use measured chunk lengths.
+- `analysis.service.ts`: `runAnalysis` is the single entry point for analysing a transcribed meeting — every path calls it and branches on its returned `cancelled` flag, never on a re-read status. Also owns sentence derivation and `recalculateMeetingMetrics`.
+- `patterns.service.ts`: Validates the model's `rule_key` against the seeded vocabulary (unknown → `<category>.other`), upserts patterns, and rebuilds counters plus the mastery state machine from stored rows.
+- `stats.service.ts`: Analytics and `getRankedPatterns` (recency- and severity-weighted).
 
 **Audio capture:**
-- Dual recording: mixed (mic+desktop) for playback, mic-only for grammar analysis
+- Two recording modes, stored on `meetings.recording_mode`:
+  - **meeting**: dual recording — mixed (mic+desktop) for playback, plus a `mic_`-prefixed track that is the only thing analysed
+  - **solo**: one mic-only recorder writing **unprefixed** chunks. This matters: `getAudioChunks` excludes `mic_` files, so a prefixed solo recording would analyse fine but have no playable audio
 - Desktop audio requires requesting a video track too (Electron limitation) — discarded immediately
-- 5-minute WebM chunks via MediaRecorder
+- WebM chunks via MediaRecorder, rotated on `chunkDurationSeconds` (a target; real lengths drift)
 
-**Processing pipeline** (`pipeline:process-meeting`):
-1. Convert each mic chunk WebM→WAV with FFmpeg
-2. Transcribe with Whisper → save segments to DB
-3. Batch segments (12 per batch) → analyze with Ollama → save mistakes to DB
-4. Calculate overall score, update meeting status to 'completed'
+**Processing pipeline** (`IPC_CHANNELS.PROCESS_MEETING`):
+1. Convert each chunk WebM→WAV with FFmpeg (unprefixed for solo, `mic_` for meetings)
+2. Transcribe with Whisper → save segments, stamping timestamps from measured WAV durations
+3. Derive `sentences` via `splitIntoSentences` — these are the unit the LLM is asked about and the denominator of the metric
+4. `runAnalysis`: batch sentences → Ollama → mark each sentence `clean` / `has_mistake` / `failed`, locate each mistake's span once, assign its pattern
+5. Context analyses, each stored with `status: 'ok' | 'failed'`
+6. `recalculateMeetingMetrics` sets the clean-sentence rate and `analysis_state`
+
+**The metric:** `clean_sentence_rate = clean / checked`, where *checked* excludes sentences that failed. There is no `overall_score` any more — the old mistakes-per-word score put ten major errors in a thousand words at 97. Denominating on *checked* is what stops an unreachable Ollama from reporting a flawless recording; `formatCleanRate` in `src/shared/metrics.ts` is the single formatter.
+
+**Pattern identity:** the LLM picks a `rule_key` from a closed, seeded vocabulary (`GRAMMAR_RULES` in `shared/constants.ts`), so the same habit in different words collapses to one tracked `patterns` row. The raw value is kept in `mistakes.raw_rule_key` for tuning the vocabulary.
 
 ## Critical Constraints
 
@@ -73,17 +99,20 @@ No test framework is configured.
 - **`better-sqlite3` and `ffmpeg-static` must be externalized** in `vite.main.config.ts`
 - **`better-sqlite3` must be in `asar.unpack`** in forge packager config
 - **Path alias:** `@shared/*` → `src/shared/*` (configured in tsconfig)
+- **Never write an empty result on LLM failure.** A missing or empty row renders identically to "nothing found", which is how outages used to hide. Record the failure (`sentences.status='failed'`, `meeting_analyses.status='failed'`) instead.
+- **Pure logic belongs in `src/shared/`** so it can be exercised without Electron: `sentences.ts` (splitter), `highlight.ts` (span location + segmentation), `metrics.ts`, `transcript.ts`
 
 ## Conventions
 
 - IPC handlers: `*.ipc.ts` — Services: `*.service.ts` — Pages: `*Page.tsx`
 - Adding a new IPC channel: define in `shared/constants.ts` → create handler in `main/ipc/` → register in `main/ipc/index.ts` → expose in `preload.ts` → add type to `ElectronAPI` in `shared/types.ts`
 - Adding a page: create in `renderer/pages/` → add route in `App.tsx`
-- Adding a table: update `schema.ts` → add migration SQL in `migrate.ts`
+- Adding a table: update `schema.ts` → add CREATE TABLE + indexes in `apply-schema.ts`
+- Put pure logic in `src/shared/` and unit-test it; put anything that opens the database in `scripts/integration/` (see **Tests**)
 
 ## Runtime Prerequisites
 
-- Ollama installed and running on `localhost:11434`
+- Ollama installed and running — `localhost:11434` by default, configurable via the `ollamaHost` setting (Settings → Engine)
 - Model pulled: `ollama pull qwen2.5:7b`
 - Whisper binary + CUDA DLLs in `resources/whisper/`
 - Whisper model downloaded via Setup page (stored in `userData/models/`)

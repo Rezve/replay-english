@@ -8,6 +8,7 @@ import { MeetingsPage } from './pages/MeetingsPage';
 import { ProfilesPage } from './pages/ProfilesPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { SetupPage } from './pages/SetupPage';
+import { ReviewPage } from './pages/ReviewPage';
 
 const router = createHashRouter([
   { path: '/setup', element: <SetupPage /> },
@@ -15,7 +16,8 @@ const router = createHashRouter([
     path: '/',
     element: <MainLayout />,
     children: [
-      { index: true, element: <Navigate to="/record" replace /> },
+      { index: true, element: <Navigate to="/review" replace /> },
+      { path: 'review', element: <ReviewPage /> },
       { path: 'record', element: <RecordingPage /> },
       { path: 'meetings', element: <MeetingsPage /> },
       { path: 'meetings/:id', element: <ReportPage /> },

@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate, useBlocker } from 'react-router-dom';
-import { Mic, MicOff, Square, Loader2, Pause, Play } from 'lucide-react';
+import { Mic, MicOff, Square, Loader2, Pause, Play, Users, Shuffle } from 'lucide-react';
 import { api } from '../lib/api';
-import type { Meeting, Profile, AppSettings } from '../../shared/types';
+import { pickSpeakingPrompt } from '../../shared/prompts';
+import type { Meeting, Profile, AppSettings, RecordingMode, GrammarModeValue } from '../../shared/types';
 
 function formatTimer(seconds: number): string {
   const hrs = Math.floor(seconds / 3600);
@@ -27,6 +28,14 @@ export function RecordingPage() {
   const [selectedMicId, setSelectedMicId] = useState<string>('');
   const [availableMics, setAvailableMics] = useState<MediaDeviceInfo[]>([]);
   const [captureDesktop, setCaptureDesktop] = useState(true);
+  const [recordingMode, setRecordingMode] = useState<RecordingMode>('meeting');
+  // The standard this recording will be judged by, stamped on the row at
+  // creation so the report stays interpretable if the setting changes later.
+  const [grammarModes, setGrammarModes] = useState<Record<RecordingMode, GrammarModeValue>>({
+    solo: 'professional',
+    meeting: 'conversational',
+  });
+  const [topic, setTopic] = useState<string | null>(null);
   const [chunkDurationMs, setChunkDurationMs] = useState(300000);
   const [isMuted, setIsMuted] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -52,6 +61,8 @@ export function RecordingPage() {
     api.listProfiles().then(setProfiles).catch(console.error);
     api.getSettings().then((s: AppSettings) => {
       setChunkDurationMs(s.chunkDurationSeconds * 1000);
+      setRecordingMode(s.defaultRecordingMode);
+      setGrammarModes({ solo: s.grammarModeSolo, meeting: s.grammarModeMeeting });
     }).catch(console.error);
 
     // Enumerate available microphones
@@ -68,8 +79,11 @@ export function RecordingPage() {
 
   const getDefaultTitle = () => {
     const now = new Date();
-    return `Meeting ${now.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ${now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`;
+    const prefix = recordingMode === 'solo' ? 'Practice' : 'Meeting';
+    return `${prefix} ${now.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ${now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`;
   };
+
+  const isSolo = recordingMode === 'solo';
 
   const updateAudioLevel = useCallback(() => {
     const analyser = analyserRef.current;
@@ -126,6 +140,9 @@ export function RecordingPage() {
       const meeting = await api.createMeeting({
         title: meetingTitle,
         profileId: selectedProfileId || undefined,
+        recordingMode,
+        topic: isSolo ? topic : null,
+        grammarMode: grammarModes[recordingMode],
       });
       meetingRef.current = meeting;
 
@@ -150,8 +167,8 @@ export function RecordingPage() {
 
       const stream: MediaStream = destination.stream;
 
-      // Optionally capture desktop audio and mix it in
-      if (captureDesktop) {
+      // Solo practice never asks for screen capture.
+      if (!isSolo && captureDesktop) {
         try {
           const desktopStream = await navigator.mediaDevices.getDisplayMedia({
             audio: true,
@@ -198,8 +215,13 @@ export function RecordingPage() {
         return rec;
       };
 
-      // Factory: create a mic-only recorder (for grammar analysis)
+      // Factory: create a mic-only recorder (the track grammar analysis reads).
+      //
+      // In solo mode this is the ONLY recorder, and it must write UNPREFIXED
+      // chunks: getAudioChunks() excludes 'mic_' files, so a prefixed solo
+      // recording would analyse fine but have no playable audio in the report.
       micChunkIndexRef.current = 0;
+      const micPrefix = isSolo ? undefined : 'mic';
       const createMicRecorder = () => {
         const rec = new MediaRecorder(micStream, {
           mimeType: 'audio/webm;codecs=opus',
@@ -208,16 +230,19 @@ export function RecordingPage() {
           if (e.data.size > 0 && meetingRef.current) {
             const buffer = await e.data.arrayBuffer();
             const idx = micChunkIndexRef.current++;
-            await api.saveAudioChunk(meetingRef.current.id, idx, buffer, 'mic');
+            if (isSolo) setChunkCount(idx + 1);
+            await api.saveAudioChunk(meetingRef.current.id, idx, buffer, micPrefix);
           }
         };
         return rec;
       };
 
-      // Start both recorders WITHOUT timeslice — each start() produces a
-      // complete WebM file with proper EBML headers when stop() is called.
-      mediaRecorderRef.current = createMixedRecorder();
-      mediaRecorderRef.current.start();
+      // Start WITHOUT timeslice — each start() produces a complete WebM file
+      // with proper EBML headers when stop() is called.
+      if (!isSolo) {
+        mediaRecorderRef.current = createMixedRecorder();
+        mediaRecorderRef.current.start();
+      }
 
       micRecorderRef.current = createMicRecorder();
       micRecorderRef.current.start();
@@ -313,6 +338,11 @@ export function RecordingPage() {
     setElapsed(0);
     setChunkCount(0);
     meetingRef.current = null;
+    // Cleared so a following solo recording can't see the previous session's
+    // mixed recorder, which only has no effect today by accident.
+    mediaRecorderRef.current = null;
+    micRecorderRef.current = null;
+    desktopStreamRef.current = null;
   };
 
   // Cleanup on unmount — release all media resources
@@ -344,6 +374,30 @@ export function RecordingPage() {
         {/* Title input and settings */}
         {state === 'idle' && (
           <div className="space-y-4">
+            {/* Mode picker — drives audio capture and which analyses run */}
+            <div className="flex gap-3">
+              {([
+                { mode: 'solo' as const, label: 'Solo practice', blurb: 'Just you. Mic only.', Icon: Mic },
+                { mode: 'meeting' as const, label: 'Meeting', blurb: 'You plus everyone else.', Icon: Users },
+              ]).map(({ mode, label, blurb, Icon }) => (
+                <button
+                  key={mode}
+                  onClick={() => setRecordingMode(mode)}
+                  className={`flex-1 px-4 py-3 rounded-lg border text-left transition-colors ${
+                    recordingMode === mode
+                      ? 'bg-blue-600 border-blue-500 text-white'
+                      : 'bg-navy-800 border-navy-700 text-slate-400 hover:border-navy-600 hover:text-slate-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 text-sm font-semibold">
+                    <Icon size={14} />
+                    {label}
+                  </div>
+                  <div className="text-xs mt-0.5 opacity-80">{blurb}</div>
+                </button>
+              ))}
+            </div>
+
             <input
               type="text"
               value={title}
@@ -370,22 +424,56 @@ export function RecordingPage() {
               </div>
             )}
 
-            {/* Desktop audio capture option */}
-            <div className="flex items-center gap-3 px-4 py-3 bg-navy-800 border border-navy-700 rounded-lg">
-              <input
-                type="checkbox"
-                id="captureDesktop"
-                checked={captureDesktop}
-                onChange={e => setCaptureDesktop(e.target.checked)}
-                className="w-4 h-4 text-blue-600 bg-slate-700 border-slate-600 rounded focus:ring-blue-500"
-              />
-              <label htmlFor="captureDesktop" className="text-slate-300 text-sm cursor-pointer flex-1">
-                Also capture desktop audio (everyone in the meeting)
-              </label>
-            </div>
-            <p className="text-slate-500 text-xs -mt-2 px-1">
-              Grammar analysis will only check your microphone speech
-            </p>
+            {/* Desktop audio is only meaningful when other people are talking */}
+            {!isSolo && (
+              <>
+                <div className="flex items-center gap-3 px-4 py-3 bg-navy-800 border border-navy-700 rounded-lg">
+                  <input
+                    type="checkbox"
+                    id="captureDesktop"
+                    checked={captureDesktop}
+                    onChange={e => setCaptureDesktop(e.target.checked)}
+                    className="w-4 h-4 text-blue-600 bg-slate-700 border-slate-600 rounded focus:ring-blue-500"
+                  />
+                  <label htmlFor="captureDesktop" className="text-slate-300 text-sm cursor-pointer flex-1">
+                    Also capture desktop audio (everyone in the meeting)
+                  </label>
+                </div>
+                <p className="text-slate-500 text-xs -mt-2 px-1">
+                  Grammar analysis will only check your microphone speech
+                </p>
+              </>
+            )}
+
+            {/* Something to talk about, for solo sessions */}
+            {isSolo && (
+              <div className="px-4 py-3 bg-navy-800 border border-navy-700 rounded-lg text-left">
+                {topic ? (
+                  <p className="text-slate-200 text-sm">{topic}</p>
+                ) : (
+                  <p className="text-slate-500 text-sm">
+                    Talk about anything, or pick a topic to get started.
+                  </p>
+                )}
+                <div className="flex items-center gap-3 mt-2">
+                  <button
+                    onClick={() => setTopic(pickSpeakingPrompt(topic).text)}
+                    className="flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 transition-colors"
+                  >
+                    <Shuffle size={12} />
+                    {topic ? 'Another topic' : 'Need a topic?'}
+                  </button>
+                  {topic && (
+                    <button
+                      onClick={() => setTopic(null)}
+                      className="text-xs text-slate-500 hover:text-slate-400 transition-colors"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Profile selection */}
             {profiles.length > 0 && (

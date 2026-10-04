@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer,
@@ -15,6 +16,7 @@ const timeRanges: { value: TimeRange; label: string }[] = [
 ];
 
 export function DashboardPage() {
+  const navigate = useNavigate();
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [timeRange, setTimeRange] = useState<TimeRange>('30d');
   const [profileId, setProfileId] = useState<string>('');
@@ -32,6 +34,19 @@ export function DashboardPage() {
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [timeRange, profileId]);
+
+  // Axis labels are formatted here; the service returns sortable YYYY-MM-DD.
+  const dailyPoints = useMemo(
+    () =>
+      (data?.dailyTrend ?? []).map(point => ({
+        ...point,
+        label: new Date(`${point.date}T00:00:00`).toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+        }),
+      })),
+    [data?.dailyTrend]
+  );
 
   if (loading && !data) {
     return (
@@ -103,8 +118,13 @@ export function DashboardPage() {
           <p className="text-2xl font-bold text-orange-400">{data.averageMistakes}</p>
         </div>
         <div className="bg-navy-800 rounded-lg p-4">
-          <p className="text-slate-400 text-xs mb-1">Average Score</p>
-          <p className="text-2xl font-bold text-green-400">{data.averageScore}</p>
+          <p className="text-slate-400 text-xs mb-1">Sentences Correct</p>
+          <p className="text-2xl font-bold text-green-400">
+            {data.averageCleanRate === null ? '--' : `${Math.round(data.averageCleanRate)}%`}
+          </p>
+          <p className="text-slate-500 text-xs mt-0.5">
+            {data.sentencesClean} of {data.sentencesChecked} checked
+          </p>
         </div>
         <div className="bg-navy-800 rounded-lg p-4">
           <p className="text-slate-400 text-xs mb-1">Most Common Issue</p>
@@ -121,9 +141,9 @@ export function DashboardPage() {
             Mistakes Over Time
           </h3>
           <ResponsiveContainer width="100%" height={200}>
-            <LineChart data={data.mistakesTrend}>
+            <LineChart data={dailyPoints}>
               <CartesianGrid strokeDasharray="3 3" stroke="#162846" />
-              <XAxis dataKey="date" tick={{ fill: '#94a3b8', fontSize: 12 }} />
+              <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 12 }} />
               <YAxis tick={{ fill: '#94a3b8', fontSize: 12 }} />
               <Tooltip
                 contentStyle={{ backgroundColor: '#0f1e36', border: '1px solid #162846', borderRadius: '8px' }}
@@ -138,18 +158,18 @@ export function DashboardPage() {
         <div className="bg-navy-800 rounded-lg p-4">
           <h3 className="text-white font-medium mb-4 flex items-center gap-2">
             <TrendingUp size={16} className="text-green-400" />
-            Score Over Time
+            Sentences Correct Over Time
           </h3>
           <ResponsiveContainer width="100%" height={200}>
-            <LineChart data={data.mistakesTrend}>
+            <LineChart data={dailyPoints}>
               <CartesianGrid strokeDasharray="3 3" stroke="#162846" />
-              <XAxis dataKey="date" tick={{ fill: '#94a3b8', fontSize: 12 }} />
+              <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 12 }} />
               <YAxis domain={[0, 100]} tick={{ fill: '#94a3b8', fontSize: 12 }} />
               <Tooltip
                 contentStyle={{ backgroundColor: '#0f1e36', border: '1px solid #162846', borderRadius: '8px' }}
                 labelStyle={{ color: '#e2e8f0' }}
               />
-              <Line type="monotone" dataKey="score" stroke="#22c55e" strokeWidth={2} dot={{ fill: '#22c55e', r: 3 }} />
+              <Line type="monotone" dataKey="cleanRate" stroke="#22c55e" strokeWidth={2} dot={{ fill: '#22c55e', r: 3 }} connectNulls />
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -174,21 +194,37 @@ export function DashboardPage() {
           </ResponsiveContainer>
         </div>
 
-        {/* Recurring mistakes */}
+        {/* Top patterns */}
         <div className="bg-navy-800 rounded-lg p-4">
-          <h3 className="text-white font-medium mb-4">Recurring Mistakes</h3>
-          {data.recurringMistakes.length === 0 ? (
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-white font-medium">What to work on</h3>
+            {data.topPatterns.length > 0 && (
+              <button
+                onClick={() => navigate('/review')}
+                className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+              >
+                Open review queue
+              </button>
+            )}
+          </div>
+          {data.topPatterns.length === 0 ? (
             <p className="text-slate-500 text-sm">No recurring patterns found yet</p>
           ) : (
             <div className="space-y-2 max-h-48 overflow-y-auto">
-              {data.recurringMistakes.map((m, i) => (
-                <div key={i} className="text-sm">
-                  <div className="flex items-center justify-between">
-                    <span className="text-red-300 line-through truncate flex-1">{m.original}</span>
-                    <span className="text-slate-500 text-xs ml-2">{m.count}x</span>
+              {data.topPatterns.map(p => (
+                <button
+                  key={p.id}
+                  onClick={() => navigate('/review')}
+                  className="w-full text-left text-sm hover:bg-navy-700 rounded px-2 py-1.5 -mx-2 transition-colors"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-white truncate flex-1">{p.label}</span>
+                    <span className="text-slate-500 text-xs flex-shrink-0">
+                      {p.occurrenceCount}x in {p.meetingCount}
+                    </span>
                   </div>
-                  <span className="text-green-300 text-xs">{m.corrected}</span>
-                </div>
+                  <span className="text-slate-400 text-xs">{p.hint}</span>
+                </button>
               ))}
             </div>
           )}

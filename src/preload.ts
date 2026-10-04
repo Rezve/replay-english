@@ -5,6 +5,9 @@ import type {
   CreateMeetingInput,
   MeetingFilters,
   TimeRange,
+  RecordingMode,
+  PatternState,
+  OccurrenceState,
   TranscriptSegment,
   ProgressEvent,
   DownloadProgressEvent,
@@ -70,8 +73,8 @@ const electronAPI: ElectronAPI = {
     ipcRenderer.invoke(IPC_CHANNELS.DELETE_PROFILE, id),
 
   // Dashboard
-  getAnalytics: (timeRange: TimeRange, profileId?: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.GET_ANALYTICS, timeRange, profileId),
+  getAnalytics: (timeRange: TimeRange, profileId?: string, recordingMode?: RecordingMode) =>
+    ipcRenderer.invoke(IPC_CHANNELS.GET_ANALYTICS, timeRange, profileId, recordingMode),
 
   // Settings
   getSettings: () =>
@@ -79,9 +82,24 @@ const electronAPI: ElectronAPI = {
   updateSettings: (settings) =>
     ipcRenderer.invoke(IPC_CHANNELS.UPDATE_SETTINGS, settings),
 
+  retryFailedSentences: (meetingId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.RETRY_FAILED_SENTENCES, meetingId),
+
+  // Patterns / review queue
+  listPatterns: (limit?: number) =>
+    ipcRenderer.invoke(IPC_CHANNELS.LIST_PATTERNS, limit),
+  getPatternOccurrences: (patternId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.GET_PATTERN, patternId),
+  updatePatternState: (patternId: string, state: PatternState) =>
+    ipcRenderer.invoke(IPC_CHANNELS.UPDATE_PATTERN_STATE, patternId, state),
+  updateOccurrenceState: (mistakeId: string, state: OccurrenceState) =>
+    ipcRenderer.invoke(IPC_CHANNELS.UPDATE_OCCURRENCE_STATE, mistakeId, state),
+  getReviewSummary: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.GET_REVIEW_SUMMARY),
+
   // Pipeline
   processMeeting: (meetingId: string, chunkPaths: string[]) =>
-    ipcRenderer.invoke('pipeline:process-meeting', meetingId, chunkPaths),
+    ipcRenderer.invoke(IPC_CHANNELS.PROCESS_MEETING, meetingId, chunkPaths),
 
   // Context analyses
   runContextAnalyses: (meetingId: string) =>

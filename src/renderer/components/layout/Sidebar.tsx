@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import { api } from '../../lib/api';
 import {
   Mic,
@@ -7,9 +7,11 @@ import {
   BarChart3,
   Users,
   Settings,
+  Target,
 } from 'lucide-react';
 
 const navItems = [
+  { to: '/review', icon: Target, label: 'Review' },
   { to: '/record', icon: Mic, label: 'Record' },
   { to: '/meetings', icon: List, label: 'Meetings' },
   { to: '/dashboard', icon: BarChart3, label: 'Dashboard' },
@@ -19,10 +21,20 @@ const navItems = [
 
 export function Sidebar() {
   const [version, setVersion] = useState('');
+  // Count of habits waiting, so launch shows progress at a glance.
+  const [activePatterns, setActivePatterns] = useState(0);
+  const location = useLocation();
 
   useEffect(() => {
     api.getAppVersion().then(setVersion).catch(() => {});
   }, []);
+
+  // Refreshed on navigation, which is when the count can have changed.
+  useEffect(() => {
+    api.getReviewSummary()
+      .then(s => setActivePatterns(s.active))
+      .catch(() => {});
+  }, [location.pathname]);
 
   return (
     <aside className="w-56 bg-navy-950 border-r border-navy-800 flex flex-col">
@@ -40,7 +52,12 @@ export function Sidebar() {
             }
           >
             <Icon size={18} />
-            {label}
+            <span className="flex-1">{label}</span>
+            {to === '/review' && activePatterns > 0 && (
+              <span className="px-1.5 py-0.5 bg-navy-700 text-slate-300 rounded text-xs font-normal">
+                {activePatterns}
+              </span>
+            )}
           </NavLink>
         ))}
       </nav>

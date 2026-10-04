@@ -4,7 +4,7 @@ import started from 'electron-squirrel-startup';
 import { registerAllIpcHandlers } from './main/ipc';
 import { runMigrations } from './main/db/migrate';
 import { closeDb } from './main/db/connection';
-import { migrateAudioStorage } from './main/services/audio.service';
+import { migrateAudioStorage, cleanupOrphanAudio } from './main/services/audio.service';
 
 if (started) {
   app.quit();
@@ -46,8 +46,18 @@ const createWindow = () => {
 };
 
 app.on('ready', () => {
-  runMigrations();
+  const { reset } = runMigrations();
   migrateAudioStorage();
+
+  // A schema reset drops meeting rows but not their audio files.
+  if (reset) {
+    import('./main/db/connection').then(async ({ getDb }) => {
+      const dbSchema = await import('./main/db/schema');
+      const rows = await getDb().select({ id: dbSchema.meetings.id }).from(dbSchema.meetings).all();
+      const removed = cleanupOrphanAudio(rows.map(r => r.id));
+      if (removed > 0) console.warn(`Removed ${removed} orphaned recording folder(s) after the schema reset.`);
+    }).catch(err => console.warn('Orphaned audio cleanup failed:', err));
+  }
 
   // Allow renderer to capture desktop audio via getDisplayMedia().
   // Automatically selects the entire screen so no picker dialog appears.

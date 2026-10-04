@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
   Clock,
@@ -18,9 +18,54 @@ import {
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { buildTranscriptParagraphs } from '../../shared/transcript';
+import { formatCleanRate, encouragementFor } from '../../shared/metrics';
+import { MODE_ANALYSES, GRAMMAR_RULES } from '../../shared/constants';
+import { SentenceLine } from '../components/report/SentenceLine';
+
+/**
+ * Measures a recorded chunk's real length. MediaRecorder WebM blobs often
+ * report Infinity until the element seeks, so nudge it to the end first.
+ */
+function measureBlobDuration(url: string): Promise<number | null> {
+  return new Promise(resolve => {
+    const audio = new Audio();
+    let settled = false;
+    const finish = (value: number | null) => {
+      if (settled) return;
+      settled = true;
+      audio.src = '';
+      resolve(value);
+    };
+
+    audio.preload = 'metadata';
+    audio.onloadedmetadata = () => {
+      if (Number.isFinite(audio.duration)) return finish(audio.duration);
+      // Forces the browser to resolve the real duration.
+      audio.currentTime = Number.MAX_SAFE_INTEGER;
+    };
+    audio.ontimeupdate = () => {
+      if (Number.isFinite(audio.duration)) finish(audio.duration);
+    };
+    audio.onerror = () => finish(null);
+    // Don't let an undecodable chunk stall the whole table.
+    setTimeout(() => finish(Number.isFinite(audio.duration) ? audio.duration : null), 5000);
+    audio.src = url;
+  });
+}
+
+/** Index of the chunk containing an absolute transcript time. */
+function chunkIndexForTime(chunkStartTimes: number[], timeSeconds: number): number {
+  let index = 0;
+  for (let i = 0; i < chunkStartTimes.length; i++) {
+    if (chunkStartTimes[i] <= timeSeconds) index = i;
+    else break;
+  }
+  return index;
+}
 import type {
   MeetingWithAnalysis,
   Mistake,
+  MistakeSeverity,
   ProgressEvent,
   AnalysisBatchEvent,
   ContextAnalysisType,
@@ -77,11 +122,9 @@ const severityBadge = {
   major: 'bg-red-500/20 text-red-400',
 };
 
-const highlightColors = {
-  minor: 'bg-yellow-500/20 underline decoration-yellow-500/50',
-  moderate: 'bg-orange-500/20 underline decoration-orange-500/50',
-  major: 'bg-red-500/20 underline decoration-red-500/50',
-};
+const ruleByKey = new Map(GRAMMAR_RULES.map(r => [r.key, r]));
+
+const SEVERITY_ORDER: Record<MistakeSeverity, number> = { major: 0, moderate: 1, minor: 2 };
 
 export function ReportPage() {
   const { id } = useParams<{ id: string }>();
@@ -92,6 +135,19 @@ export function ReportPage() {
   const [mistakeIndex, setMistakeIndex] = useState(0);
   const [progress, setProgress] = useState<ProgressEvent | null>(null);
   const [reanalyzing, setReanalyzing] = useState(false);
+  const [retryingFailed, setRetryingFailed] = useState(false);
+  const [searchParams] = useSearchParams();
+  const [groupBy, setGroupBy] = useState<'order' | 'pattern' | 'severity'>('order');
+  const [severityFilter, setSeverityFilter] = useState<MistakeSeverity[]>(['minor', 'moderate', 'major']);
+  // Default on: seeing what you said correctly is half of knowing where you stand.
+  const [showCorrect, setShowCorrect] = useState(true);
+  const [rejectingMistake, setRejectingMistake] = useState(false);
+  // Set once the ?t= deep link from the review queue has been honoured, so it
+  // does not re-seek every time the audio table changes.
+  const deepLinkPlayedRef = useRef(false);
+  // Clean rate of the previous completed recording in the same mode, for the
+  // one comparison the header is allowed to make.
+  const [previousCleanRate, setPreviousCleanRate] = useState<number | null>(null);
   const [processingError, setProcessingError] = useState<string | null>(null);
   const [needsSetup, setNeedsSetup] = useState(false);
   const [activeTab, setActiveTab] = useState<ReportTab>('transcript');
@@ -106,6 +162,9 @@ export function ReportPage() {
   const [audioDuration, setAudioDuration] = useState(0);
   const [audioExpanded, setAudioExpanded] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
+  // Absolute transcript time each chunk starts at, measured from the chunks
+  // themselves — the configured chunk duration is only a target.
+  const [chunkStartTimes, setChunkStartTimes] = useState<number[]>([]);
   const [chunkDurationSeconds, setChunkDurationSeconds] = useState(300);
 
   const handleReAnalyze = async () => {
@@ -113,7 +172,7 @@ export function ReportPage() {
     setReanalyzing(true);
     setSelectedMistake(null);
     setMistakeIndex(0);
-    setMeeting(prev => prev ? { ...prev, mistakes: [], totalMistakes: 0, overallScore: null, status: 'analyzing' } : prev);
+    setMeeting(prev => prev ? { ...prev, mistakes: [], totalMistakes: 0, cleanSentenceRate: null, analysisState: 'running', status: 'analyzing' } : prev);
     try {
       await api.reAnalyzeMeeting(id);
       const data = await api.getMeeting(id);
@@ -128,6 +187,39 @@ export function ReportPage() {
     }
   };
 
+  /**
+   * Dismisses a false positive. The sentence may become clean again, so the
+   * meeting is reloaded to pick up its recalculated rate.
+   */
+  const handleRejectMistake = async (mistakeId: string) => {
+    if (!id) return;
+    setRejectingMistake(true);
+    try {
+      await api.updateOccurrenceState(mistakeId, 'rejected');
+      setSelectedMistake(null);
+      setMeeting(await api.getMeeting(id));
+    } catch (err) {
+      console.error('Could not dismiss that mistake:', err);
+    } finally {
+      setRejectingMistake(false);
+    }
+  };
+
+  /** Re-check only the sentences that were never successfully analysed. */
+  const handleRetryFailed = async () => {
+    if (!id) return;
+    setRetryingFailed(true);
+    try {
+      await api.retryFailedSentences(id);
+      setMeeting(await api.getMeeting(id));
+    } catch (err: any) {
+      console.error('Retry failed:', err);
+      alert(`Could not re-check those sentences: ${err?.message || 'Unknown error'}`);
+    } finally {
+      setRetryingFailed(false);
+    }
+  };
+
   const handleRetranscribe = async () => {
     if (!meeting || !id) return;
     if (meeting.segments.length > 0 &&
@@ -138,7 +230,7 @@ export function ReportPage() {
     setReanalyzing(true);
     setSelectedMistake(null);
     setMistakeIndex(0);
-    setMeeting(prev => prev ? { ...prev, status: 'transcribing', segments: [], mistakes: [], analyses: [], totalMistakes: 0, overallScore: null } : prev);
+    setMeeting(prev => prev ? { ...prev, status: 'transcribing', segments: [], mistakes: [], analyses: [], totalMistakes: 0, cleanSentenceRate: null, analysisState: 'none' } : prev);
     try {
       const missing = await getMissingWhisperPart();
       if (missing) {
@@ -196,7 +288,7 @@ export function ReportPage() {
     setReanalyzing(true);
     setSelectedMistake(null);
     setMistakeIndex(0);
-    setMeeting(prev => prev ? { ...prev, mistakes: [], totalMistakes: 0, overallScore: null, status: 'analyzing' } : prev);
+    setMeeting(prev => prev ? { ...prev, mistakes: [], totalMistakes: 0, cleanSentenceRate: null, analysisState: 'running', status: 'analyzing' } : prev);
     try {
       await api.startAnalysis(id);
       const data = await api.getMeeting(id);
@@ -252,6 +344,17 @@ export function ReportPage() {
         }
       }
       setAudioBlobUrls(urls);
+
+      // Build the cumulative start-time table the segment seek relies on.
+      const starts: number[] = [];
+      let elapsed = 0;
+      for (const url of urls) {
+        starts.push(elapsed);
+        const measured = await measureBlobDuration(url);
+        if (cancelled) return;
+        elapsed += measured ?? chunkDurationSeconds;
+      }
+      setChunkStartTimes(starts);
     };
 
     loadAudio();
@@ -310,8 +413,12 @@ export function ReportPage() {
 
   const handlePlayFromTime = useCallback((timeSeconds: number) => {
     if (audioBlobUrls.length === 0) return;
-    const chunkIdx = Math.min(Math.floor(timeSeconds / chunkDurationSeconds), audioBlobUrls.length - 1);
-    const offset = timeSeconds - chunkIdx * chunkDurationSeconds;
+    // Fall back to the configured duration only until the table is measured.
+    const chunkIdx = chunkStartTimes.length === audioBlobUrls.length
+      ? chunkIndexForTime(chunkStartTimes, timeSeconds)
+      : Math.min(Math.floor(timeSeconds / chunkDurationSeconds), audioBlobUrls.length - 1);
+    const chunkStart = chunkStartTimes[chunkIdx] ?? chunkIdx * chunkDurationSeconds;
+    const offset = Math.max(0, timeSeconds - chunkStart);
 
     setAudioExpanded(true);
 
@@ -333,7 +440,7 @@ export function ReportPage() {
         }
       }, 100);
     }
-  }, [audioBlobUrls.length, currentChunkIdx, chunkDurationSeconds]);
+  }, [audioBlobUrls.length, currentChunkIdx, chunkStartTimes, chunkDurationSeconds]);
 
   useEffect(() => {
     if (!id) return;
@@ -350,6 +457,24 @@ export function ReportPage() {
       const data = await api.getMeeting(id);
       setMeeting(data);
       setLoading(false);
+
+      // The most recent earlier recording in the same mode, so "up from X%"
+      // compares like with like rather than solo practice against a meeting.
+      if (data) {
+        api.listMeetings({ status: 'completed' })
+          .then(all => {
+            const previous = all
+              .filter(m =>
+                m.id !== data.id &&
+                m.startedAt < data.startedAt &&
+                m.recordingMode === data.recordingMode &&
+                m.cleanSentenceRate !== null
+              )
+              .sort((a, b) => b.startedAt - a.startedAt)[0];
+            setPreviousCleanRate(previous?.cleanSentenceRate ?? null);
+          })
+          .catch(console.error);
+      }
 
       // Auto-start processing if meeting is in transcribing status
       if (data && data.status === 'transcribing' && !processingStartedRef.current) {
@@ -431,14 +556,10 @@ export function ReportPage() {
     };
   }, [id]);
 
-  const getMistakesForSegment = (segmentId: string): Mistake[] => {
-    if (!meeting) return [];
-    return meeting.mistakes.filter(m => m.segmentId === segmentId);
-  };
-
   const navigateMistake = (direction: 'prev' | 'next') => {
     if (!meeting) return;
-    const mistakes = meeting.mistakes;
+    // Dismissed occurrences are skipped — they are no longer mistakes.
+    const mistakes = meeting.mistakes.filter(m => m.occurrenceState !== 'rejected');
     if (mistakes.length === 0) return;
     const newIndex = direction === 'next'
       ? Math.min(mistakeIndex + 1, mistakes.length - 1)
@@ -447,7 +568,38 @@ export function ReportPage() {
     setSelectedMistake(mistakes[newIndex]);
   };
 
-  const allTabs: ReportTab[] = ['transcript', 'line-by-line', 'grammar_full', 'summary', 'action_items', 'vocabulary', 'fluency'];
+  // Built from the same constant the analyses are capped by, so a tab that can
+  // never be filled for this mode is not offered at all.
+  const allTabs: ReportTab[] = [
+    'transcript',
+    ...MODE_ANALYSES[meeting?.recordingMode ?? 'meeting'].map(kind =>
+      kind === 'line_by_line' ? ('line-by-line' as const) : kind
+    ),
+  ];
+
+  // Opening a solo report while Action Items was selected would otherwise leave
+  // the panel area blank.
+  useEffect(() => {
+    if (!allTabs.includes(activeTab)) setActiveTab('transcript');
+  }, [allTabs, activeTab]);
+
+  // "Hear it" in the review queue arrives as ?t=<seconds>&tab=line-by-line.
+  // Wait for the measured chunk table, or the seek would use the fallback math.
+  useEffect(() => {
+    if (deepLinkPlayedRef.current) return;
+    const rawTime = searchParams.get('t');
+    if (!rawTime) return;
+
+    const requestedTab = searchParams.get('tab') as ReportTab | null;
+    if (requestedTab && allTabs.includes(requestedTab)) setActiveTab(requestedTab);
+
+    const seconds = parseFloat(rawTime);
+    if (!Number.isFinite(seconds)) return;
+    if (audioBlobUrls.length === 0 || chunkStartTimes.length !== audioBlobUrls.length) return;
+
+    deepLinkPlayedRef.current = true;
+    handlePlayFromTime(seconds);
+  }, [searchParams, allTabs, audioBlobUrls.length, chunkStartTimes, handlePlayFromTime]);
 
   if (loading) {
     return (
@@ -471,14 +623,86 @@ export function ReportPage() {
   const isProcessing = meeting.status === 'transcribing' || meeting.status === 'analyzing' || reanalyzing;
   const isRunningContext = runningTab !== null || (progress?.stage === 'context-analyzing' && progress?.current === 0);
 
+  const liveMistakes = meeting.mistakes.filter(m => m.occurrenceState !== 'rejected');
+
+  const sentenceById = new Map(meeting.sentences.map(s => [s.id, s]));
+
+  const mistakesBySentence = new Map<string, typeof liveMistakes>();
+  for (const m of liveMistakes) {
+    if (!severityFilter.includes(m.severity)) continue;
+    const list = mistakesBySentence.get(m.sentenceId) ?? [];
+    list.push(m);
+    mistakesBySentence.set(m.sentenceId, list);
+  }
+
+  // Filler-only utterances are kept out of the reading view the same way they
+  // are kept out of the denominator.
+  const visibleSentences = meeting.sentences.filter(s => {
+    if (!s.countsTowardRate && (mistakesBySentence.get(s.id) ?? []).length === 0) return false;
+    if ((mistakesBySentence.get(s.id) ?? []).length > 0) return true;
+    return showCorrect;
+  });
+
+  const filteredMistakes = liveMistakes.filter(m => severityFilter.includes(m.severity));
+
+  const groupedMistakes = (() => {
+    if (groupBy === 'order') return [];
+
+    const groups = new Map<string, { key: string; label: string; hint?: string; mistakes: typeof liveMistakes }>();
+
+    for (const m of filteredMistakes) {
+      const key = groupBy === 'severity' ? m.severity : m.ruleKey ?? 'unclassified';
+      const existing = groups.get(key);
+      if (existing) {
+        existing.mistakes.push(m);
+        continue;
+      }
+      const rule = groupBy === 'pattern' && m.ruleKey ? ruleByKey.get(m.ruleKey) : null;
+      groups.set(key, {
+        key,
+        label: groupBy === 'severity'
+          ? `${m.severity[0].toUpperCase()}${m.severity.slice(1)}`
+          : rule?.label ?? 'Not classified',
+        hint: rule?.hint,
+        mistakes: [m],
+      });
+    }
+
+    return Array.from(groups.values()).sort((a, b) =>
+      groupBy === 'severity'
+        ? (SEVERITY_ORDER[a.key as MistakeSeverity] ?? 9) - (SEVERITY_ORDER[b.key as MistakeSeverity] ?? 9)
+        : b.mistakes.length - a.mistakes.length
+    );
+  })();
+
+  const selectMistake = (mistake: typeof liveMistakes[number]) => {
+    setSelectedMistake(mistake);
+    const idx = liveMistakes.findIndex(m => m.id === mistake.id);
+    if (idx >= 0) setMistakeIndex(idx);
+  };
+
+  const cleanRate = formatCleanRate(meeting);
+  const majorCount = meeting.mistakes.filter(m => m.severity === 'major').length;
+  const encouragement = encouragementFor(meeting, majorCount, previousCleanRate);
+
   const getAnalysisContent = <T,>(type: ContextAnalysisType): T | null => {
     const analysis = meeting.analyses?.find(a => a.type === type);
-    if (!analysis) return null;
+    // A failed run is stored with status 'failed' so it is not mistaken for
+    // "nothing found"; callers check analysisFailure separately.
+    if (!analysis || analysis.status === 'failed') return null;
     try {
       return JSON.parse(analysis.content) as T;
     } catch {
       return null;
     }
+  };
+
+  /** The message to show on a context tab whose last run failed. */
+  const analysisFailure = (type: ContextAnalysisType): string | null => {
+    const analysis = meeting.analyses?.find(a => a.type === type);
+    return analysis?.status === 'failed'
+      ? analysis.errorMessage ?? 'This analysis could not be completed.'
+      : null;
   };
 
   return (
@@ -501,19 +725,38 @@ export function ReportPage() {
               {meeting.profile && (
                 <span className="px-2 py-0.5 bg-navy-700 rounded text-xs">{meeting.profile.name}</span>
               )}
+              <span className="px-2 py-0.5 bg-navy-700 rounded text-xs capitalize">
+                {meeting.recordingMode === 'solo' ? 'Solo' : 'Meeting'} · {meeting.grammarMode} standard
+              </span>
             </div>
+            {meeting.topic && (
+              <p className="text-slate-400 text-sm mt-1.5 italic">{meeting.topic}</p>
+            )}
           </div>
           <div className="flex items-center gap-4">
-            {(meeting.status === 'completed' || meeting.mistakes.length > 0) && (
+            {(meeting.status === 'completed' || liveMistakes.length > 0) && (
               <>
                 {meeting.status === 'completed' && (
-                  <div className="text-center">
-                    <p className="text-3xl font-bold text-white">{meeting.overallScore !== null ? Math.round(meeting.overallScore) : '--'}</p>
-                    <p className="text-xs text-slate-400">Score</p>
+                  <div className="text-right">
+                    <p
+                      className={`text-3xl font-bold ${
+                        cleanRate.tone === 'good'
+                          ? 'text-emerald-400'
+                          : cleanRate.tone === 'warning'
+                            ? 'text-amber-400'
+                            : 'text-white'
+                      }`}
+                    >
+                      {cleanRate.percent === null ? '--' : `${cleanRate.percent}%`}
+                    </p>
+                    <p className="text-xs text-slate-400">{cleanRate.headline}</p>
+                    {encouragement && (
+                      <p className="text-xs text-emerald-400 mt-0.5">{encouragement}</p>
+                    )}
                   </div>
                 )}
                 <div className="text-center">
-                  <p className="text-3xl font-bold text-orange-400">{meeting.mistakes.length}</p>
+                  <p className="text-3xl font-bold text-orange-400">{liveMistakes.length}</p>
                   <p className="text-xs text-slate-400">Mistakes{meeting.status === 'analyzing' ? ' so far' : ''}</p>
                 </div>
               </>
@@ -532,10 +775,10 @@ export function ReportPage() {
         </div>
 
         {/* Summary stats */}
-        {meeting.mistakes.length > 0 && (
+        {liveMistakes.length > 0 && (
           <div className="flex gap-3 mt-4">
             {(['minor', 'moderate', 'major'] as const).map(sev => {
-              const count = meeting.mistakes.filter(m => m.severity === sev).length;
+              const count = liveMistakes.filter(m => m.severity === sev).length;
               if (count === 0) return null;
               return (
                 <span key={sev} className={`text-xs px-2 py-1 rounded ${severityBadge[sev]}`}>
@@ -638,9 +881,9 @@ export function ReportPage() {
             {progress && (
               <p className="text-blue-400/60 text-sm">{progress.message}</p>
             )}
-            {meeting.status === 'analyzing' && meeting.mistakes.length > 0 && (
+            {meeting.status === 'analyzing' && liveMistakes.length > 0 && (
               <p className="text-blue-400/60 text-sm mt-1">
-                {meeting.mistakes.length} mistake{meeting.mistakes.length !== 1 ? 's' : ''} found so far — you can start reviewing below
+                {liveMistakes.length} mistake{liveMistakes.length !== 1 ? 's' : ''} found so far — you can start reviewing below
               </p>
             )}
           </div>
@@ -682,6 +925,29 @@ export function ReportPage() {
               Open Setup
             </button>
           )}
+        </div>
+      )}
+
+      {/* Sentences that were never checked — the gap the clean rate excludes */}
+      {meeting.sentencesFailed > 0 && !isProcessing && (
+        <div className="flex-shrink-0 mb-4 bg-amber-500/10 border border-amber-500/20 rounded-lg p-4 flex items-center gap-3">
+          <AlertTriangle size={20} className="text-amber-400 flex-shrink-0" />
+          <div className="flex-1">
+            <p className="text-amber-300 font-medium">
+              {meeting.sentencesFailed} sentence{meeting.sentencesFailed === 1 ? '' : 's'} couldn't be checked
+            </p>
+            <p className="text-amber-400/60 text-sm">
+              {cleanRate.caveat ?? 'They are left out of the percentage above.'}
+            </p>
+          </div>
+          <button
+            onClick={handleRetryFailed}
+            disabled={retryingFailed || reanalyzing}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-amber-600 hover:bg-amber-500 text-white rounded-lg transition-colors disabled:opacity-50 flex-shrink-0"
+          >
+            {retryingFailed ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+            {retryingFailed ? 'Checking...' : 'Check these'}
+          </button>
         </div>
       )}
 
@@ -794,66 +1060,119 @@ export function ReportPage() {
                   <p className="text-slate-400">No transcript available</p>
                 </div>
               )}
-              <div className="space-y-1">
-                {meeting.segments.map(segment => {
-                  const segMistakes = getMistakesForSegment(segment.id);
-                  const hasMistakes = segMistakes.length > 0;
-                  return (
-                    <div
-                      key={segment.id}
-                      className={`flex gap-3 p-2 rounded transition-colors ${
-                        hasMistakes ? 'hover:bg-navy-800 cursor-pointer' : ''
-                      } ${selectedMistake && segMistakes.some(m => m.id === selectedMistake.id) ? 'bg-navy-800' : ''}`}
-                      onClick={() => {
-                        if (segMistakes.length > 0) {
-                          setSelectedMistake(segMistakes[0]);
-                          const idx = meeting.mistakes.findIndex(m => m.id === segMistakes[0].id);
-                          if (idx >= 0) setMistakeIndex(idx);
-                        }
-                      }}
-                    >
-                      <span className="flex items-center gap-1 flex-shrink-0 pt-0.5">
-                        {audioBlobUrls.length > 0 && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handlePlayFromTime(segment.startTime);
-                            }}
-                            className="text-slate-600 hover:text-blue-400 transition-colors"
-                            title="Play from here"
-                          >
-                            <Play size={10} fill="currentColor" />
-                          </button>
-                        )}
-                        <span className="text-slate-500 text-xs font-mono w-12">
-                          {formatTime(segment.startTime)}
-                        </span>
-                      </span>
-                      <div>
-                        <p className={`text-sm leading-relaxed ${hasMistakes ? 'text-white' : 'text-slate-300'}`}>
-                          {hasMistakes ? (
-                            <span>
-                              {segMistakes.reduce((text) => {
-                                // Simple highlight — wrap the mistake's original text
-                                return text;
-                              }, '')}
-                              <span className={highlightColors[segMistakes[0].severity]}>
-                                {segment.text}
-                              </span>
-                              <AlertTriangle size={12} className="inline ml-1 text-orange-400" />
-                            </span>
-                          ) : (
-                            segment.text
+
+              {/* View controls */}
+              {visibleSentences.length > 0 && (
+                <div className="flex items-center gap-4 flex-wrap mb-3 pb-3 border-b border-navy-800">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-slate-500 text-xs">Group by</span>
+                    <div className="flex bg-navy-800 rounded-lg p-0.5">
+                      {([
+                        ['order', 'Order'],
+                        ['pattern', 'Pattern'],
+                        ['severity', 'Severity'],
+                      ] as const).map(([value, label]) => (
+                        <button
+                          key={value}
+                          onClick={() => setGroupBy(value)}
+                          className={`px-2.5 py-1 rounded text-xs transition-colors ${
+                            groupBy === value ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    {(['minor', 'moderate', 'major'] as const).map(sev => {
+                      const on = severityFilter.includes(sev);
+                      return (
+                        <button
+                          key={sev}
+                          onClick={() => setSeverityFilter(prev =>
+                            prev.includes(sev) ? prev.filter(s => s !== sev) : [...prev, sev]
                           )}
-                        </p>
-                        {segment.translatedText && (
-                          <p className="text-xs text-slate-400 mt-0.5 italic">{segment.translatedText}</p>
-                        )}
+                          className={`px-2 py-1 rounded text-xs transition-colors ${
+                            on ? severityBadge[sev] : 'bg-navy-800 text-slate-500 hover:text-slate-300'
+                          }`}
+                        >
+                          {sev}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Seeing what you got right is half the point */}
+                  <label className="flex items-center gap-2 cursor-pointer ml-auto">
+                    <input
+                      type="checkbox"
+                      checked={showCorrect}
+                      onChange={e => setShowCorrect(e.target.checked)}
+                      className="accent-blue-500"
+                    />
+                    <span className="text-slate-400 text-xs">Show correct sentences</span>
+                  </label>
+                </div>
+              )}
+
+              {groupBy === 'order' ? (
+                <div className="space-y-0.5">
+                  {visibleSentences.map(sentence => (
+                    <SentenceLine
+                      key={sentence.id}
+                      sentence={sentence}
+                      mistakes={mistakesBySentence.get(sentence.id) ?? []}
+                      selectedMistakeId={selectedMistake?.id ?? null}
+                      canPlay={audioBlobUrls.length > 0}
+                      onPlay={handlePlayFromTime}
+                      onSelectMistake={selectMistake}
+                    />
+                  ))}
+                  {visibleSentences.length === 0 && meeting.segments.length > 0 && (
+                    <p className="text-slate-500 text-sm text-center py-8">
+                      Nothing matches those filters.
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {groupedMistakes.map(group => (
+                    <div key={group.key}>
+                      <div className="flex items-baseline gap-2 mb-1.5">
+                        <h4 className="text-white text-sm font-medium">{group.label}</h4>
+                        <span className="text-slate-500 text-xs">
+                          {group.mistakes.length}&times;
+                        </span>
+                      </div>
+                      {group.hint && <p className="text-slate-400 text-xs mb-2">{group.hint}</p>}
+                      <div className="space-y-0.5">
+                        {group.mistakes.map(m => {
+                          const sentence = sentenceById.get(m.sentenceId);
+                          if (!sentence) return null;
+                          return (
+                            <SentenceLine
+                              key={m.id}
+                              sentence={sentence}
+                              mistakes={[m]}
+                              selectedMistakeId={selectedMistake?.id ?? null}
+                              canPlay={audioBlobUrls.length > 0}
+                              onPlay={handlePlayFromTime}
+                              onSelectMistake={selectMistake}
+                            />
+                          );
+                        })}
                       </div>
                     </div>
-                  );
-                })}
-              </div>
+                  ))}
+                  {groupedMistakes.length === 0 && (
+                    <p className="text-slate-500 text-sm text-center py-8">
+                      Nothing matches those filters.
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Mistake detail panel */}
@@ -873,11 +1192,11 @@ export function ReportPage() {
                         <ChevronLeft size={16} />
                       </button>
                       <span className="text-xs text-slate-400">
-                        {mistakeIndex + 1} / {meeting.mistakes.length}
+                        {mistakeIndex + 1} / {liveMistakes.length}
                       </span>
                       <button
                         onClick={() => navigateMistake('next')}
-                        disabled={mistakeIndex === meeting.mistakes.length - 1}
+                        disabled={mistakeIndex >= liveMistakes.length - 1}
                         className="p-1 text-slate-400 hover:text-white disabled:opacity-30"
                       >
                         <ChevronRight size={16} />
@@ -890,6 +1209,25 @@ export function ReportPage() {
                       </button>
                     </div>
                   </div>
+
+                  {/* The habit behind this one instance */}
+                  {selectedMistake.ruleKey && ruleByKey.get(selectedMistake.ruleKey) && (
+                    <button
+                      onClick={() => navigate('/review')}
+                      className="w-full text-left mb-3 pb-3 border-b border-navy-700/60 group"
+                    >
+                      <p className="text-xs text-slate-400 mb-0.5 flex items-center gap-1">
+                        Pattern
+                        <ChevronRight size={10} className="opacity-0 group-hover:opacity-100 transition-opacity" />
+                      </p>
+                      <p className="text-sm text-white group-hover:text-blue-300 transition-colors">
+                        {ruleByKey.get(selectedMistake.ruleKey)!.label}
+                      </p>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        {ruleByKey.get(selectedMistake.ruleKey)!.hint}
+                      </p>
+                    </button>
+                  )}
 
                   {/* Original */}
                   <div className="mb-3">
@@ -923,6 +1261,19 @@ export function ReportPage() {
                       </ul>
                     </div>
                   )}
+
+                  <div className="mt-4 pt-3 border-t border-navy-700/60">
+                    <button
+                      onClick={() => handleRejectMistake(selectedMistake.id)}
+                      disabled={rejectingMistake}
+                      className="text-xs text-slate-400 hover:text-slate-200 transition-colors disabled:opacity-50"
+                    >
+                      {rejectingMistake ? 'Removing...' : "This wasn't a mistake"}
+                    </button>
+                    <p className="text-xs text-slate-600 mt-1">
+                      Removes it from your patterns and recounts this recording.
+                    </p>
+                  </div>
                 </div>
               </div>
             )}
@@ -935,7 +1286,14 @@ export function ReportPage() {
           const hasSegments = meeting.segments.length > 0;
           if (!data) return (
             <div className="flex-1 flex flex-col items-center justify-center py-12">
-              <p className="text-slate-400 mb-4">No full grammar analysis available</p>
+              {analysisFailure('grammar_full') ? (
+                <div className="flex items-center gap-2 mb-4 max-w-md text-center">
+                  <AlertTriangle size={16} className="text-amber-400 flex-shrink-0" />
+                  <p className="text-amber-300 text-sm">{analysisFailure('grammar_full')}</p>
+                </div>
+              ) : (
+                <p className="text-slate-400 mb-4">No full grammar analysis available</p>
+              )}
               {hasSegments && (
                 <button
                   onClick={() => handleRunSingleAnalysis('grammar_full')}
@@ -986,7 +1344,14 @@ export function ReportPage() {
           const hasSegments = meeting.segments.length > 0;
           if (!data) return (
             <div className="flex-1 flex flex-col items-center justify-center py-12">
-              <p className="text-slate-400 mb-4">No summary available</p>
+              {analysisFailure('summary') ? (
+                <div className="flex items-center gap-2 mb-4 max-w-md text-center">
+                  <AlertTriangle size={16} className="text-amber-400 flex-shrink-0" />
+                  <p className="text-amber-300 text-sm">{analysisFailure('summary')}</p>
+                </div>
+              ) : (
+                <p className="text-slate-400 mb-4">No summary available</p>
+              )}
               {hasSegments && (
                 <button
                   onClick={() => handleRunSingleAnalysis('summary')}
@@ -1038,7 +1403,14 @@ export function ReportPage() {
           const hasSegments = meeting.segments.length > 0;
           if (!data) return (
             <div className="flex-1 flex flex-col items-center justify-center py-12">
-              <p className="text-slate-400 mb-4">No action items available</p>
+              {analysisFailure('action_items') ? (
+                <div className="flex items-center gap-2 mb-4 max-w-md text-center">
+                  <AlertTriangle size={16} className="text-amber-400 flex-shrink-0" />
+                  <p className="text-amber-300 text-sm">{analysisFailure('action_items')}</p>
+                </div>
+              ) : (
+                <p className="text-slate-400 mb-4">No action items available</p>
+              )}
               {hasSegments && (
                 <button
                   onClick={() => handleRunSingleAnalysis('action_items')}
@@ -1095,7 +1467,14 @@ export function ReportPage() {
           const hasSegments = meeting.segments.length > 0;
           if (!data) return (
             <div className="flex-1 flex flex-col items-center justify-center py-12">
-              <p className="text-slate-400 mb-4">No vocabulary suggestions available</p>
+              {analysisFailure('vocabulary') ? (
+                <div className="flex items-center gap-2 mb-4 max-w-md text-center">
+                  <AlertTriangle size={16} className="text-amber-400 flex-shrink-0" />
+                  <p className="text-amber-300 text-sm">{analysisFailure('vocabulary')}</p>
+                </div>
+              ) : (
+                <p className="text-slate-400 mb-4">No vocabulary suggestions available</p>
+              )}
               {hasSegments && (
                 <button
                   onClick={() => handleRunSingleAnalysis('vocabulary')}
@@ -1146,7 +1525,14 @@ export function ReportPage() {
           const hasSegments = meeting.segments.length > 0;
           if (!data) return (
             <div className="flex-1 flex flex-col items-center justify-center py-12">
-              <p className="text-slate-400 mb-4">No fluency analysis available</p>
+              {analysisFailure('fluency') ? (
+                <div className="flex items-center gap-2 mb-4 max-w-md text-center">
+                  <AlertTriangle size={16} className="text-amber-400 flex-shrink-0" />
+                  <p className="text-amber-300 text-sm">{analysisFailure('fluency')}</p>
+                </div>
+              ) : (
+                <p className="text-slate-400 mb-4">No fluency analysis available</p>
+              )}
               {hasSegments && (
                 <button
                   onClick={() => handleRunSingleAnalysis('fluency')}

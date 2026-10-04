@@ -1,5 +1,6 @@
 import React from 'react';
-import { Trash2, Clock, AlertTriangle } from 'lucide-react';
+import { Trash2, Clock, AlertTriangle, Mic, Users } from 'lucide-react';
+import { formatCleanRate } from '../../../shared/metrics';
 import type { Meeting } from '../../../shared/types';
 
 const statusColors: Record<string, string> = {
@@ -36,6 +37,8 @@ interface MeetingCardProps {
 }
 
 export function MeetingCard({ meeting, profileColor, onDelete, onClick }: MeetingCardProps) {
+  const cleanRate = formatCleanRate(meeting);
+
   return (
     <div
       onClick={() => onClick(meeting.id)}
@@ -61,14 +64,21 @@ export function MeetingCard({ meeting, profileColor, onDelete, onClick }: Meetin
               <Clock size={14} />
               {formatDuration(meeting.durationSeconds)}
             </span>
+            <span className="flex items-center gap-1">
+              {meeting.recordingMode === 'solo' ? <Mic size={14} /> : <Users size={14} />}
+              {meeting.recordingMode === 'solo' ? 'Solo' : 'Meeting'}
+            </span>
             {meeting.status === 'completed' && (
               <>
                 <span className="flex items-center gap-1">
                   <AlertTriangle size={14} />
                   {meeting.totalMistakes} mistake{meeting.totalMistakes !== 1 ? 's' : ''}
                 </span>
-                {meeting.overallScore !== null && (
-                  <span>Score: {Math.round(meeting.overallScore)}/100</span>
+                {cleanRate.percent !== null && (
+                  <span>{cleanRate.percent}% correct</span>
+                )}
+                {cleanRate.percent === null && cleanRate.caveat && (
+                  <span className="text-amber-400">Not checked</span>
                 )}
               </>
             )}

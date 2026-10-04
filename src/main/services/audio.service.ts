@@ -49,6 +49,55 @@ export async function saveAudioChunk(
   return filePath;
 }
 
+/**
+ * Duration of a WAV produced by convertToWav, read straight from the RIFF
+ * header. Chunk files drift from the configured chunk duration (pause/resume,
+ * rotation timing, a short final chunk), so segment timestamps have to be
+ * stamped from measured lengths rather than an assumed 5 minutes.
+ */
+export function getWavDurationSeconds(wavPath: string): number | null {
+  let fd: number | null = null;
+  try {
+    fd = fs.openSync(wavPath, 'r');
+    // Walk the chunk list rather than assuming a 44-byte canonical header;
+    // ffmpeg can emit a LIST/INFO chunk before 'data'.
+    const header = Buffer.alloc(12);
+    if (fs.readSync(fd, header, 0, 12, 0) < 12) return null;
+    if (header.toString('ascii', 0, 4) !== 'RIFF' || header.toString('ascii', 8, 12) !== 'WAVE') {
+      return null;
+    }
+
+    let byteRate = 0;
+    let offset = 12;
+    const chunkHeader = Buffer.alloc(8);
+    const fileSize = fs.fstatSync(fd).size;
+
+    while (offset + 8 <= fileSize) {
+      if (fs.readSync(fd, chunkHeader, 0, 8, offset) < 8) break;
+      const id = chunkHeader.toString('ascii', 0, 4);
+      const size = chunkHeader.readUInt32LE(4);
+
+      if (id === 'fmt ') {
+        const fmt = Buffer.alloc(16);
+        if (fs.readSync(fd, fmt, 0, 16, offset + 8) < 16) break;
+        byteRate = fmt.readUInt32LE(8);
+      } else if (id === 'data') {
+        if (!byteRate) break;
+        return size / byteRate;
+      }
+
+      // Chunks are word-aligned, so an odd size is followed by a pad byte.
+      offset += 8 + size + (size % 2);
+    }
+    return null;
+  } catch (error) {
+    console.warn(`Could not read WAV duration for ${wavPath}:`, error);
+    return null;
+  } finally {
+    if (fd !== null) fs.closeSync(fd);
+  }
+}
+
 export async function convertToWav(inputPath: string): Promise<string> {
   const outputPath = inputPath.replace(/\.[^.]+$/, '.wav');
   const ffmpegPath = getFFmpegPath();
@@ -64,6 +113,33 @@ export async function convertToWav(inputPath: string): Promise<string> {
   ]);
 
   return outputPath;
+}
+
+/**
+ * Removes recording folders with no meeting row left to play them. A schema
+ * reset drops the meeting rows but not their audio, which would otherwise sit
+ * in userData forever.
+ */
+export function cleanupOrphanAudio(knownMeetingIds: string[]): number {
+  const known = new Set(knownMeetingIds);
+  let removed = 0;
+
+  for (const folder of ['recordings', 'temp']) {
+    const root = path.join(app.getPath('userData'), folder);
+    if (!fs.existsSync(root)) continue;
+
+    for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+      if (!entry.isDirectory() || known.has(entry.name)) continue;
+      try {
+        fs.rmSync(path.join(root, entry.name), { recursive: true, force: true });
+        removed++;
+      } catch (error) {
+        console.warn(`Could not remove orphaned audio for ${entry.name}:`, error);
+      }
+    }
+  }
+
+  return removed;
 }
 
 export function cleanupMeetingAudio(meetingId: string): void {

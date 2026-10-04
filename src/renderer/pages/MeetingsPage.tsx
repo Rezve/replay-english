@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { List, Search, ChevronDown } from 'lucide-react';
 import { api } from '../lib/api';
 import { MeetingCard } from '../components/meetings/MeetingCard';
-import type { Meeting, Profile } from '../../shared/types';
+import type { Meeting, Profile, RecordingMode } from '../../shared/types';
 
 type StatusFilter = 'all' | 'completed' | 'failed' | 'in-progress';
 type TimeRangeFilter = 'all' | 'today' | 'week' | 'month';
@@ -37,6 +37,7 @@ export function MeetingsPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [timeRange, setTimeRange] = useState<TimeRangeFilter>('all');
   const [profileId, setProfileId] = useState('');
+  const [modeFilter, setModeFilter] = useState<'all' | RecordingMode>('all');
 
   // Grouping
   const [collapsedMonths, setCollapsedMonths] = useState<Set<string>>(new Set());
@@ -85,6 +86,10 @@ export function MeetingsPage() {
       result = result.filter(m => IN_PROGRESS_STATUSES.includes(m.status));
     }
 
+    if (modeFilter !== 'all') {
+      result = result.filter(m => m.recordingMode === modeFilter);
+    }
+
     if (timeRange !== 'all') {
       const now = Date.now();
       const cutoffs: Record<string, number> = {
@@ -96,7 +101,7 @@ export function MeetingsPage() {
     }
 
     return result;
-  }, [meetings, searchQuery, statusFilter, timeRange]);
+  }, [meetings, searchQuery, statusFilter, modeFilter, timeRange]);
 
   const groupedByMonth = useMemo(() => {
     if (timeRange !== 'all') return null;
@@ -186,6 +191,15 @@ export function MeetingsPage() {
                 className="w-full pl-9 pr-3 py-1.5 bg-navy-900 border border-navy-700 rounded-lg text-white text-sm placeholder-slate-500 focus:outline-none focus:border-slate-500"
               />
             </div>
+            <select
+              value={modeFilter}
+              onChange={e => setModeFilter(e.target.value as 'all' | RecordingMode)}
+              className="px-3 py-1.5 bg-navy-800 border border-navy-700 rounded-lg text-white text-sm"
+            >
+              <option value="all">All modes</option>
+              <option value="solo">Solo practice</option>
+              <option value="meeting">Meetings</option>
+            </select>
             {profiles.length > 0 && (
               <select
                 value={profileId}

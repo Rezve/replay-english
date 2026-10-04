@@ -10,6 +10,7 @@ import type {
   CreateMeetingInput,
   MeetingFilters,
   MeetingStatus,
+  RecordingMode,
   TimeRange,
 } from '../../shared/types';
 
@@ -25,10 +26,20 @@ export function registerDatabaseHandlers() {
       startedAt: Date.now(),
       endedAt: null,
       durationSeconds: null,
+      recordingMode: data.recordingMode ?? ('meeting' as const),
+      topic: data.topic ?? null,
+      // Recorded per meeting so a report stays interpretable after the user
+      // changes the setting.
+      grammarMode: data.grammarMode ?? ('professional' as const),
       status: 'recording' as const,
       totalSegments: 0,
       totalMistakes: 0,
-      overallScore: null,
+      sentencesTotal: 0,
+      sentencesClean: 0,
+      sentencesFailed: 0,
+      cleanSentenceRate: null,
+      analysisState: 'none' as const,
+      sentenceSplitVersion: 0,
       notes: null,
       transcript: null,
     };
@@ -66,9 +77,17 @@ export function registerDatabaseHandlers() {
       .where(eq(schema.meetingAnalyses.meetingId, id))
       .all();
 
+    // Sentences carry per-sentence status, so the report can show what was
+    // correct and what was never checked, not only the mistakes.
+    const sentenceRows = await db.select().from(schema.sentences)
+      .where(eq(schema.sentences.meetingId, id))
+      .orderBy(schema.sentences.sentenceIndex)
+      .all();
+
     return {
       ...meeting,
       segments,
+      sentences: sentenceRows.map(row => ({ ...row, countsTowardRate: !!row.countsTowardRate })),
       mistakes: mistakesWithAlternatives,
       profile,
       analyses,
@@ -90,6 +109,9 @@ export function registerDatabaseHandlers() {
     }
     if (filters?.toDate) {
       conditions.push(lte(schema.meetings.startedAt, filters.toDate));
+    }
+    if (filters?.recordingMode) {
+      conditions.push(eq(schema.meetings.recordingMode, filters.recordingMode));
     }
 
     const query = db.select().from(schema.meetings).orderBy(desc(schema.meetings.startedAt));
@@ -145,7 +167,10 @@ export function registerDatabaseHandlers() {
 
   // --- Dashboard ---
 
-  ipcMain.handle(IPC_CHANNELS.GET_ANALYTICS, async (_event, timeRange: TimeRange, profileId?: string) => {
-    return await getAnalytics(timeRange, profileId);
-  });
+  ipcMain.handle(
+    IPC_CHANNELS.GET_ANALYTICS,
+    async (_event, timeRange: TimeRange, profileId?: string, recordingMode?: RecordingMode) => {
+      return await getAnalytics(timeRange, profileId, recordingMode);
+    }
+  );
 }
