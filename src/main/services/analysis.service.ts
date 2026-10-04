@@ -11,6 +11,7 @@ import {
   analyzeFluency,
   type AnalysisResult,
 } from './ollama.service';
+import { buildTranscriptParagraphs } from '../../shared/transcript';
 import type { TranscriptSegment, Mistake, MeetingAnalysis, ContextAnalysisType } from '../../shared/types';
 
 const BATCH_SIZE = 4; // smaller batches for slower local LLMs
@@ -182,7 +183,11 @@ export async function runContextAnalyses(
   if (enabledTypes.length === 0 || segments.length === 0) return [];
 
   const db = getDb();
-  const fullTranscript = segments.map(s => s.text).join('\n');
+  // Same text the Transcript tab shows: the stored transcript, or paragraphs built from segments
+  const [meetingRow] = await db.select({ transcript: schema.meetings.transcript })
+    .from(schema.meetings)
+    .where(eq(schema.meetings.id, meetingId));
+  const fullTranscript = meetingRow?.transcript ?? buildTranscriptParagraphs(segments);
   const results: MeetingAnalysis[] = [];
 
   // Delete existing analyses for these types (for re-runs)
