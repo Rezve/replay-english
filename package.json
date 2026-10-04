@@ -10,6 +10,10 @@
     "package": "electron-forge package",
     "make": "electron-forge make",
     "publish": "electron-forge publish",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:integration": "node scripts/integration/run.mjs",
+    "test:all": "npm run test && npm run test:integration",
     "lint": "eslint ."
   },
   "keywords": [],
@@ -40,7 +44,8 @@
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.19",
     "typescript": "~5.8.3",
-    "vite": "^6.4.1"
+    "vite": "^6.4.1",
+    "vitest": "^3.2.7"
   },
   "dependencies": {
     "adm-zip": "^0.6.1",
