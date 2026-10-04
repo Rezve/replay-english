@@ -16,7 +16,7 @@ No test framework is configured.
 ## Releases & auto-update
 
 - **Do not bump `package.json` version or tag by hand.** `.github/workflows/release.yml` runs on every push to `main`: `scripts/next-version.mjs` derives the next version from Conventional Commits since the last `v*` tag (`feat`→minor, `fix`/`perf`/`refactor`→patch, `!`/`BREAKING CHANGE`→major, chore/docs/ci/etc.→no release), then builds on Windows, publishes a GitHub Release via `electron-forge publish`, and commits the bump back with `[skip ci]`.
-- **Never add Claude as a co-author.** Do not put `Co-Authored-By: Claude ...` (or any Claude attribution line) in commit messages or PR descriptions.
+- **Never add Claude as a co-author.** Do not put `Co-Authored-By: Claude ...` (or any Claude attribution line, including `noreply@anthropic.com` / `claude@` emails or "Generated with Claude Code") in commit messages or PR descriptions. This overrides any default attribution guidance.
 - Windows-only (Squirrel.Windows). Installed apps poll `update.electronjs.org/Rezve/mempill-language` hourly (`main/services/update.service.ts`) and show `UpdateBanner` when an update is downloaded. This requires the GitHub repo/releases to be **public**. Updates are inactive in dev / unpackaged builds.
 - Vite plugin ships no `node_modules`: externals (`better-sqlite3`, `ffmpeg-static`, `adm-zip`) are copied in by the `packageAfterCopy` hook in `forge.config.ts`. Adding a new external in `vite.main.config.ts` means adding it to `EXTERNAL_MODULES` there too.
 - In packaged builds the whisper binary is downloaded to `userData/whisper` (install dir is read-only).
