@@ -43,7 +43,7 @@
     "vite": "^6.4.1"
   },
   "dependencies": {
-    "adm-zip": "^0.5.16",
+    "adm-zip": "^0.6.1",
     "better-sqlite3": "^12.6.2",
     "drizzle-orm": "^0.45.1",
     "electron-squirrel-startup": "^1.0.1",
