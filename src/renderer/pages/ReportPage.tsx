@@ -94,7 +94,7 @@ export function ReportPage() {
   const [reanalyzing, setReanalyzing] = useState(false);
   const [processingError, setProcessingError] = useState<string | null>(null);
   const [needsSetup, setNeedsSetup] = useState(false);
-  const [activeTab, setActiveTab] = useState<ReportTab>('line-by-line');
+  const [activeTab, setActiveTab] = useState<ReportTab>('transcript');
   const processingStartedRef = React.useRef(false);
 
   // Audio player state
