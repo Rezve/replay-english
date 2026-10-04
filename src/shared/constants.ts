@@ -92,6 +92,7 @@ export const IPC_CHANNELS = {
   CHECK_PREREQUISITES: 'prerequisites:check',
   CHECK_MODEL_STATUS: 'prerequisites:check-model-status',
   LIST_WHISPER_MODELS: 'prerequisites:list-whisper-models',
+  LIST_OLLAMA_MODELS: 'prerequisites:list-ollama-models',
   DOWNLOAD_WHISPER_MODEL: 'prerequisites:download-whisper-model',
   DOWNLOAD_WHISPER_BINARY: 'prerequisites:download-whisper-binary',
   PULL_OLLAMA_MODEL: 'prerequisites:pull-ollama-model',

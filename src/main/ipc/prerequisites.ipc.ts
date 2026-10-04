@@ -2,7 +2,7 @@ import { ipcMain, BrowserWindow } from 'electron';
 import { IPC_CHANNELS, DEFAULT_SETTINGS } from '../../shared/constants';
 import { checkPrerequisites, checkModelStatus } from '../services/prerequisites.service';
 import { downloadModel, downloadWhisperBinary, checkGpu, listDownloadedModels } from '../services/whisper.service';
-import { pullModel } from '../services/ollama.service';
+import { pullModel, listInstalledModels } from '../services/ollama.service';
 import { getDb } from '../db/connection';
 import * as schema from '../db/schema';
 import type { WhisperBinaryVariant } from '../../shared/types';
@@ -43,6 +43,8 @@ export function registerPrerequisitesHandlers(mainWindow: BrowserWindow) {
   );
 
   ipcMain.handle(IPC_CHANNELS.LIST_WHISPER_MODELS, () => listDownloadedModels());
+
+  ipcMain.handle(IPC_CHANNELS.LIST_OLLAMA_MODELS, () => listInstalledModels());
 
   ipcMain.handle(IPC_CHANNELS.CHECK_GPU, async () => {
     return await checkGpu();

@@ -2,10 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { CheckCircle, XCircle, Loader2, Download, X, AlertTriangle } from 'lucide-react';
 import { api } from '../lib/api';
 import { WhisperModelSelect } from './WhisperModelSelect';
+import { OllamaModelSelect } from './OllamaModelSelect';
 import { WHISPER_MODEL_CATALOG } from '../../shared/constants';
 import type { ModelCheckResult, DownloadProgressEvent } from '../../shared/types';
 
-const OLLAMA_MODELS = ['qwen2.5:7b', 'phi3:3.8b', 'llama3.1:8b'];
 
 interface SystemCheckModalProps {
   whisperModel: string;
@@ -193,16 +193,13 @@ export function SystemCheckModal({ whisperModel: initialWhisper, ollamaModel: in
                 <span className="text-white font-medium text-sm">Ollama Model</span>
               </div>
               <div className="ml-[26px] mt-1">
-                <select
+                <OllamaModelSelect
                   value={ollamaModel}
                   disabled={pullingOllama}
-                  onChange={e => changeModels({ whisperModel, ollamaModel: e.target.value })}
+                  refreshKey={pullingOllama}
+                  onChange={m => changeModels({ whisperModel, ollamaModel: m })}
                   className="w-full px-2 py-1.5 bg-navy-900 border border-navy-700 rounded text-white text-xs disabled:opacity-50"
-                >
-                  {[...new Set([...OLLAMA_MODELS, ollamaModel])].map(m => (
-                    <option key={m} value={m}>{m}</option>
-                  ))}
-                </select>
+                />
               </div>
               {!status.ollamaModel.ollamaRunning ? (
                 <p className="text-orange-400 text-xs ml-[26px] mt-1">

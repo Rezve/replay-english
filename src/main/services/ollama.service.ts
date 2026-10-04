@@ -110,6 +110,15 @@ export async function isModelAvailable(modelName: string): Promise<boolean> {
   }
 }
 
+export async function listInstalledModels(): Promise<string[]> {
+  try {
+    const models = await ollama.list();
+    return models.models.map(m => m.name);
+  } catch {
+    return [];
+  }
+}
+
 export async function pullModel(modelName: string): Promise<void> {
   await ollama.pull({ model: modelName });
 }

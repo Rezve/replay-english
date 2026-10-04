@@ -4,6 +4,7 @@ import { Check, Shield } from 'lucide-react';
 import { api } from '../lib/api';
 import { SystemCheckModal } from '../components/SystemCheckModal';
 import { WhisperModelSelect } from '../components/WhisperModelSelect';
+import { OllamaModelSelect } from '../components/OllamaModelSelect';
 import type { AppSettings } from '../../shared/types';
 
 export function SettingsPage() {
@@ -99,15 +100,11 @@ export function SettingsPage() {
         {/* Ollama Model */}
         <div className="bg-navy-800 rounded-lg p-4">
           <h3 className="text-white font-medium mb-2">Ollama Model</h3>
-          <select
+          <OllamaModelSelect
             value={settings.ollamaModel}
-            onChange={e => handleOllamaModelChange(e.target.value)}
-            className="w-full px-3 py-2 bg-navy-900 border border-navy-700 rounded-lg text-white text-sm"
-          >
-            <option value="qwen2.5:7b">qwen2.5:7b — Recommended (7B params)</option>
-            <option value="phi3:3.8b">phi3:3.8b — Lightweight (3.8B params)</option>
-            <option value="llama3.1:8b">llama3.1:8b — Alternative (8B params)</option>
-          </select>
+            refreshKey={showModelCheck}
+            onChange={handleOllamaModelChange}
+          />
         </div>
 
         {/* Chunk Duration */}

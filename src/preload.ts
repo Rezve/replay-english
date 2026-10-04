@@ -96,6 +96,8 @@ const electronAPI: ElectronAPI = {
     ipcRenderer.invoke(IPC_CHANNELS.CHECK_MODEL_STATUS, whisperModel, ollamaModel),
   listWhisperModels: () =>
     ipcRenderer.invoke(IPC_CHANNELS.LIST_WHISPER_MODELS),
+  listOllamaModels: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.LIST_OLLAMA_MODELS),
   downloadWhisperModel: (modelName?: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.DOWNLOAD_WHISPER_MODEL, modelName),
   downloadWhisperBinary: (variant: WhisperBinaryVariant) =>
