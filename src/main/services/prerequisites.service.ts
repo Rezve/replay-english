@@ -1,4 +1,4 @@
-import { isWhisperAvailable, isModelAvailable as isWhisperModelAvailable } from './whisper.service';
+import { isWhisperAvailable, isModelAvailable as isWhisperModelAvailable, canDownloadWhisperBinary } from './whisper.service';
 import { isOllamaRunning, isModelAvailable as isOllamaModelAvailable } from './ollama.service';
 import type { PrerequisiteStatus, ModelCheckResult } from '../../shared/types';
 
@@ -27,6 +27,7 @@ export async function checkPrerequisites(
 
   return {
     whisperBinary: isWhisperAvailable(),
+    whisperBinaryDownloadable: canDownloadWhisperBinary(),
     whisperModel: isWhisperModelAvailable(whisperModel),
     ollamaRunning,
     ollamaModel: ollamaModelAvailable,

@@ -1,7 +1,8 @@
-// Renders resources/icon/icon.svg to icon.png (512px) and a multi-size icon.ico.
+// Renders resources/icon/icon.svg to icon.png (512px), a multi-size icon.ico (Windows)
+// and icon.icns (macOS).
 // No image tooling is installed, so Chromium does the rasterising: run with
 //   npx electron scripts/build-icon.cjs
-// ICO entries are stored as PNG, which Windows Vista+ reads at every size.
+// ICO and ICNS entries are both stored as PNG, which Windows Vista+ and macOS 10.7+ read.
 const { app, BrowserWindow } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -9,6 +10,8 @@ const path = require('node:path');
 const DIR = path.join(__dirname, '..', 'resources', 'icon');
 const ICO_SIZES = [16, 24, 32, 48, 64, 128, 256];
 const PNG_SIZE = 512;
+// ICNS OSType per PNG size (16/32-point Retina variants share the 32/64 px images).
+const ICNS_TYPES = { 32: 'ic11', 64: 'ic12', 128: 'ic07', 256: 'ic08', 512: 'ic09', 1024: 'ic10' };
 
 async function rasterise(win, svg, size) {
   const dataUrl = await win.webContents.executeJavaScript(`
@@ -53,6 +56,19 @@ function buildIco(pngs) {
   return Buffer.concat([header, ...entries, ...pngs.map((p) => p.data)]);
 }
 
+function buildIcns(pngs) {
+  const chunks = pngs.map(({ size, data }) => {
+    const head = Buffer.alloc(8);
+    head.write(ICNS_TYPES[size], 0, 'ascii');
+    head.writeUInt32BE(8 + data.length, 4); // length includes the 8-byte header
+    return Buffer.concat([head, data]);
+  });
+  const header = Buffer.alloc(8);
+  header.write('icns', 0, 'ascii');
+  header.writeUInt32BE(8 + chunks.reduce((n, c) => n + c.length, 0), 4);
+  return Buffer.concat([header, ...chunks]);
+}
+
 app.whenReady().then(async () => {
   try {
     const svg = fs.readFileSync(path.join(DIR, 'icon.svg'), 'utf8');
@@ -64,7 +80,11 @@ app.whenReady().then(async () => {
     fs.writeFileSync(path.join(DIR, 'icon.ico'), buildIco(pngs));
     fs.writeFileSync(path.join(DIR, 'icon.png'), await rasterise(win, svg, PNG_SIZE));
 
-    console.log(`Wrote icon.ico (${ICO_SIZES.join(', ')}) and icon.png (${PNG_SIZE}) to ${DIR}`);
+    const icns = [];
+    for (const size of Object.keys(ICNS_TYPES).map(Number)) icns.push({ size, data: await rasterise(win, svg, size) });
+    fs.writeFileSync(path.join(DIR, 'icon.icns'), buildIcns(icns));
+
+    console.log(`Wrote icon.ico (${ICO_SIZES.join(', ')}), icon.icns and icon.png (${PNG_SIZE}) to ${DIR}`);
     app.exit(0);
   } catch (err) {
     console.error(err);

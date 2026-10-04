@@ -6,13 +6,22 @@ Everything runs on your own computer. Your audio, transcripts and analysis are n
 
 ## Download
 
-**[⬇ Download ReplayEnglish-Setup.exe](https://github.com/Rezve/replay-english/releases/latest/download/ReplayEnglish-Setup.exe)** (Windows 10/11, 64-bit)
+**Windows 10/11 (64-bit):** **[⬇ Download ReplayEnglish-Setup.exe](https://github.com/Rezve/replay-english/releases/latest/download/ReplayEnglish-Setup.exe)**
 
-Or browse every version on the [Releases page](https://github.com/Rezve/replay-english/releases).
+**macOS and Linux:** get the file for your system from the [latest release](https://github.com/Rezve/replay-english/releases/latest):
 
-Run the installer and the app opens when it finishes. New versions download in the background, and a banner tells you when an update is ready to install.
+| System | File |
+|---|---|
+| macOS, Apple Silicon | `Replay.English-darwin-arm64-<version>.zip` |
+| macOS, Intel | `Replay.English-darwin-x64-<version>.zip` |
+| Debian / Ubuntu | `replay-english_<version>_amd64.deb` |
+| Fedora / RHEL / openSUSE | `replay-english-<version>-1.x86_64.rpm` |
+
+On Windows, run the installer and the app opens when it finishes. New versions download in the background, and a banner tells you when an update is ready to install. On macOS and Linux, the app doesn't update itself. Download the new release when you want to upgrade.
 
 > Windows SmartScreen may warn you because the installer isn't code-signed. If it does, click **More info → Run anyway**.
+>
+> The macOS app isn't signed either. After unzipping, move it to Applications and run `xattr -cr "/Applications/Replay English.app"` once. Otherwise macOS reports that the app is damaged.
 
 ## Before you start
 
@@ -20,7 +29,7 @@ Replay English uses two free, local engines.
 
 | Engine | What it does | How to get it |
 |---|---|---|
-| **Whisper** | Turns your speech into text | Installed from inside the app. Open the **Setup** page and download the binary (CPU, or CUDA 12 if you have an NVIDIA GPU) and a speech model. |
+| **Whisper** | Turns your speech into text | **Windows:** installed from inside the app. Open the **Setup** page and download the binary (CPU, or CUDA 12 if you have an NVIDIA GPU). **macOS:** `brew install whisper-cpp`. **Linux:** [build whisper.cpp](https://github.com/ggml-org/whisper.cpp#quick-start) and put `whisper-cli` on your `PATH` or in `~/.local/bin`. On every system, download a speech model from the **Setup** page. |
 | **Ollama** | Checks your grammar and phrasing | Install from [ollama.com](https://ollama.com), then run `ollama pull qwen2.5:7b` in a terminal. |
 
 The **Setup** page shows a green check next to each part once it's ready.

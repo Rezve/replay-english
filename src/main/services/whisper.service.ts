@@ -24,11 +24,29 @@ function getModelDir(): string {
   return dir;
 }
 
+/** whisper.cpp publishes prebuilt CLI binaries for Windows only; elsewhere the user installs it. */
+export function canDownloadWhisperBinary(): boolean {
+  return process.platform === 'win32';
+}
+
+// Apps launched from Finder or a desktop menu get a minimal PATH that skips Homebrew
+// and ~/.local, so the usual install locations are searched explicitly.
+function systemBinaryDirs(): string[] {
+  const fromPath = (process.env.PATH ?? '').split(path.delimiter).filter(Boolean);
+  const common = ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', path.join(app.getPath('home'), '.local', 'bin')];
+  return [...new Set([...fromPath, ...common])];
+}
+
 export function getWhisperBinaryPath(): string {
-  const dir = getWhisperDir();
   // whisper.cpp builds as whisper-cli.exe on Windows
   const binaryName = process.platform === 'win32' ? 'whisper-cli.exe' : 'whisper-cli';
-  return path.join(dir, binaryName);
+  const bundled = path.join(getWhisperDir(), binaryName);
+  if (canDownloadWhisperBinary() || fs.existsSync(bundled)) return bundled;
+  for (const dir of systemBinaryDirs()) {
+    const candidate = path.join(dir, binaryName);
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return bundled;
 }
 
 export function getModelPath(modelName: string = 'ggml-base.en.bin'): string {
@@ -292,6 +310,9 @@ export async function downloadWhisperBinary(
   variant: WhisperBinaryVariant,
   onProgress?: (downloaded: number, total: number) => void,
 ): Promise<void> {
+  if (!canDownloadWhisperBinary()) {
+    throw new Error('whisper.cpp has no prebuilt binary for this platform; install whisper-cli instead.');
+  }
   const { fileName } = WHISPER_DOWNLOAD_URLS[variant];
   const url = `https://github.com/ggml-org/whisper.cpp/releases/download/${WHISPER_VERSION}/${fileName}`;
   const whisperDir = getWhisperDir();

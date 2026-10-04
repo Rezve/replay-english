@@ -30,6 +30,7 @@ export function SetupPage() {
   const [downloadProgress, setDownloadProgress] = useState<DownloadProgressEvent | null>(null);
   const [gpuInfo, setGpuInfo] = useState<GpuInfo | null>(null);
   const [downloadingBinary, setDownloadingBinary] = useState(false);
+  const [binaryDownloadable, setBinaryDownloadable] = useState(false);
 
   const runChecks = async () => {
     setChecking(true);
@@ -40,12 +41,17 @@ export function SetupPage() {
       setAppSettings(settings);
       const status: PrerequisiteStatus = await api.checkPrerequisites();
       const whisperLabel = settings.whisperModel.replace('ggml-', '').replace('.bin', '');
+      setBinaryDownloadable(status.whisperBinaryDownloadable);
       setItems([
         {
           name: 'Whisper Binary',
           description: 'Speech-to-text engine',
           status: status.whisperBinary ? 'ok' : 'error',
-          hint: status.whisperBinary ? undefined : 'Place whisper-cli.exe in resources/whisper/',
+          hint: status.whisperBinary
+            ? undefined
+            : status.whisperBinaryDownloadable
+              ? 'Download a build below'
+              : 'Install whisper.cpp so whisper-cli is available (macOS: brew install whisper-cpp)',
         },
         {
           name: 'Whisper Model',
@@ -149,7 +155,7 @@ export function SetupPage() {
             const isWhisperModel = item.name === 'Whisper Model';
             const isWhisperBinary = item.name === 'Whisper Binary';
             const canDownloadModel = isWhisperModel && item.status === 'error';
-            const canDownloadBinary = isWhisperBinary && item.status === 'error';
+            const canDownloadBinary = isWhisperBinary && item.status === 'error' && binaryDownloadable;
             const isDownloading = isWhisperModel ? downloading : downloadingBinary;
 
             return (

@@ -290,6 +290,8 @@ export interface AnalyticsData {
 
 export interface PrerequisiteStatus {
   whisperBinary: boolean;
+  /** False where whisper.cpp ships no prebuilt CLI (macOS, Linux) and the user must install it. */
+  whisperBinaryDownloadable: boolean;
   whisperModel: boolean;
   ollamaRunning: boolean;
   ollamaModel: boolean;

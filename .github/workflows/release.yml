@@ -1,9 +1,9 @@
 name: Release
 
 # Every push to main is inspected: if it contains releasable commits
-# (feat / fix / perf / refactor) the version is bumped, the Windows installer
-# is built, and a GitHub Release is published. Installed apps then pick it up
-# automatically via update.electronjs.org.
+# (feat / fix / perf / refactor) the version is bumped, installers are built for
+# Windows, macOS and Linux, and one GitHub Release is published with all of them.
+# Installed Windows apps then pick it up automatically via update.electronjs.org.
 on:
   push:
     branches: [main]
@@ -17,9 +17,11 @@ permissions:
   contents: write
 
 jobs:
-  release:
-    runs-on: windows-latest
+  version:
+    runs-on: ubuntu-latest
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    outputs:
+      next: ${{ steps.version.outputs.next }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -28,41 +30,94 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
 
       - name: Compute next version
         id: version
-        shell: bash
         run: |
           NEXT=$(node scripts/next-version.mjs)
           echo "next=$NEXT" >> "$GITHUB_OUTPUT"
           if [ -z "$NEXT" ]; then echo "No releasable commits."; fi
 
+  # Each platform builds natively: better-sqlite3 is rebuilt for Electron and
+  # ffmpeg-static downloads its binary for the host OS/arch, so no cross-compiling.
+  build:
+    needs: version
+    if: needs.version.outputs.next != ''
+    strategy:
+      matrix:
+        include:
+          - { name: windows-x64, os: windows-latest }
+          - { name: macos-arm64, os: macos-latest }
+          - { name: macos-x64, os: macos-15-intel }
+          - { name: linux-x64, os: ubuntu-latest }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install rpm tooling
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y rpm
+
       - name: Install dependencies
-        if: steps.version.outputs.next != ''
         run: npm ci
 
       - name: Lint
-        if: steps.version.outputs.next != ''
         run: npm run lint
 
       - name: Set version
-        if: steps.version.outputs.next != ''
         shell: bash
-        run: npm version "${{ steps.version.outputs.next }}" --no-git-tag-version --allow-same-version
+        run: npm version "${{ needs.version.outputs.next }}" --no-git-tag-version --allow-same-version
 
-      - name: Build and publish release
-        if: steps.version.outputs.next != ''
+      - name: Build installers
+        run: npm run make
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: make-${{ matrix.name }}
+          path: |
+            out/make/**/*.exe
+            out/make/**/*.nupkg
+            out/make/**/RELEASES
+            out/make/**/*.zip
+            out/make/**/*.deb
+            out/make/**/*.rpm
+          if-no-files-found: error
+
+  # Publishes only once every platform has built, so a release is never partial.
+  release:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: make-*
+
+      - name: Publish GitHub Release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run publish
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.version.outputs.next }}
+        # update.electronjs.org reads RELEASES + the nupkg from the release assets.
+        run: |
+          find dist -type f -print0 | xargs -0 gh release create "v$VERSION" \
+            --target "$GITHUB_SHA" --title "v$VERSION" --generate-notes
 
       - name: Commit version bump
-        if: steps.version.outputs.next != ''
-        shell: bash
         run: |
+          npm version "${{ needs.version.outputs.next }}" --no-git-tag-version --allow-same-version
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add package.json package-lock.json
-          git diff --cached --quiet || git commit -m "chore(release): v${{ steps.version.outputs.next }} [skip ci]"
+          git diff --cached --quiet || git commit -m "chore(release): v${{ needs.version.outputs.next }} [skip ci]"
           git push origin HEAD:main

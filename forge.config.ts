@@ -1,5 +1,8 @@
 import type { ForgeConfig } from '@electron-forge/shared-types';
 import { MakerSquirrel } from '@electron-forge/maker-squirrel';
+import { MakerZIP } from '@electron-forge/maker-zip';
+import { MakerDeb } from '@electron-forge/maker-deb';
+import { MakerRpm } from '@electron-forge/maker-rpm';
 import { PublisherGithub } from '@electron-forge/publisher-github';
 import { VitePlugin } from '@electron-forge/plugin-vite';
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
@@ -25,9 +28,12 @@ function collectDependencies(name: string, seen: Set<string>): void {
 
 const config: ForgeConfig = {
   packagerConfig: {
-    // Extension omitted on purpose: packager picks icon.ico on Windows.
+    // Extension omitted on purpose: packager picks icon.ico on Windows, icon.icns on macOS.
     // Regenerate from icon.svg with `npx electron scripts/build-icon.cjs`.
     icon: 'resources/icon/icon',
+    // The deb/rpm makers look for a binary named after package.json `name`. Linux only:
+    // renaming the Windows exe would break existing Squirrel installs.
+    executableName: process.platform === 'linux' ? 'replay-english' : undefined,
     asar: {
       unpack: '**/node_modules/{better-sqlite3,ffmpeg-static}/**',
     },
@@ -35,7 +41,6 @@ const config: ForgeConfig = {
   rebuildConfig: {
     onlyModules: ['better-sqlite3'],
   },
-  // Windows only: the app depends on whisper-cli.exe and Squirrel.Windows auto-update.
   hooks: {
     // Runs before the native-module rebuild, so better-sqlite3 is rebuilt for Electron.
     packageAfterCopy: async (_config, buildPath) => {
@@ -60,10 +65,29 @@ const config: ForgeConfig = {
       // Shown in "Apps & features"; Squirrel only accepts a URL here.
       iconUrl: 'https://raw.githubusercontent.com/Rezve/replay-english/main/resources/icon/icon.ico',
     }),
+    // macOS: a zipped .app. Unsigned, so there is no auto-update (Squirrel.Mac requires signing).
+    new MakerZIP({}, ['darwin']),
+    // Linux: no auto-update; users upgrade through the package.
+    new MakerDeb({
+      options: {
+        icon: 'resources/icon/icon.png',
+        categories: ['Education', 'AudioVideo'],
+        homepage: 'https://github.com/Rezve/replay-english',
+      },
+    }),
+    new MakerRpm({
+      options: {
+        icon: 'resources/icon/icon.png',
+        categories: ['Education', 'AudioVideo'],
+        homepage: 'https://github.com/Rezve/replay-english',
+        license: 'MIT',
+      },
+    }),
   ],
   publishers: [
-    // Uploads installer + RELEASES + nupkg to a GitHub Release tagged v<package.json version>.
-    // Needs GITHUB_TOKEN in the environment (release workflow, or .env locally).
+    // Uploads this platform's make output to a GitHub Release tagged v<package.json version>.
+    // For local publishes only — CI builds each platform separately and creates the release
+    // once with every artifact (see release.yml). Needs GITHUB_TOKEN (.env locally).
     new PublisherGithub({
       repository: { owner: 'Rezve', name: 'replay-english' },
       prerelease: false,
