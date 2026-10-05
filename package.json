@@ -1,7 +1,7 @@
 {
   "name": "replay-english",
   "productName": "Replay English",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Local-first English speaking coach: records meetings, transcribes and analyzes grammar",
   "main": ".vite/build/main.js",
   "private": true,
