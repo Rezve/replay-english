@@ -3,7 +3,7 @@ name: Release
 # Every push to main is inspected: if it contains releasable commits
 # (feat / fix / perf / refactor) the version is bumped, installers are built for
 # Windows, macOS and Linux, and one GitHub Release is published with all of them.
-# Installed Windows apps then pick it up automatically via update.electronjs.org.
+# Installed Windows apps then pick it up automatically from the latest release's RELEASES.
 on:
   push:
     branches: [main]
@@ -94,6 +94,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # release notes list the commits since the previous tag
 
       - uses: actions/setup-node@v4
         with:
@@ -108,10 +110,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ needs.version.outputs.next }}
-        # update.electronjs.org reads RELEASES + the nupkg from the release assets.
+        # Installed apps read RELEASES + the nupkg from the latest release's assets.
+        # Notes list the shipped commits grouped by type (scripts/release-notes.mjs).
         run: |
+          node scripts/release-notes.mjs "$VERSION" > release-notes.md
+          cat release-notes.md
           find dist -type f -print0 | xargs -0 gh release create "v$VERSION" \
-            --target "$GITHUB_SHA" --title "v$VERSION" --generate-notes
+            --target "$GITHUB_SHA" --title "v$VERSION" --notes-file release-notes.md
 
       - name: Commit version bump
         run: |
