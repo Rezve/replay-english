@@ -62,6 +62,8 @@ const config: ForgeConfig = {
       name: 'replay_english',
       setupExe: 'ReplayEnglish-Setup.exe',
       setupIcon: 'resources/icon/icon.ico',
+      // Shown while Setup.exe installs; regenerate with scripts/build-loading-gif.cjs.
+      loadingGif: 'resources/installer/loading.gif',
       // Shown in "Apps & features"; Squirrel only accepts a URL here.
       iconUrl: 'https://raw.githubusercontent.com/Rezve/replay-english/main/resources/icon/icon.ico',
     }),
