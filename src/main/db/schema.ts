@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, real, primaryKey } from 'drizzle-orm/sqlite-core';
 import type {
   MeetingStatus,
   AnalysisState,
@@ -12,6 +12,7 @@ import type {
   PatternState,
   ContextAnalysisType,
   AnalysisRunStatus,
+  ChunkTranscriptionStatus,
 } from '../../shared/types';
 
 export const profiles = sqliteTable('profiles', {
@@ -62,6 +63,24 @@ export const transcriptSegments = sqliteTable('transcript_segments', {
   translatedText: text('translated_text'),
   confidence: real('confidence'),
 });
+
+/**
+ * One row per recorded chunk once transcription has tried it. An 'ok' row
+ * always has its segments beside it (both are written in one transaction), so
+ * resuming only has to redo the chunks without one.
+ */
+export const transcriptChunks = sqliteTable('transcript_chunks', {
+  meetingId: text('meeting_id').notNull().references(() => meetings.id, { onDelete: 'cascade' }),
+  chunkIndex: integer('chunk_index').notNull(),
+  sourceFile: text('source_file').notNull(),
+  status: text('status').notNull().$type<ChunkTranscriptionStatus>(),
+  errorMessage: text('error_message'),
+  // Later chunks' timestamps are offset by this, so it is never null.
+  durationSeconds: real('duration_seconds').notNull(),
+  whisperModel: text('whisper_model').notNull(),
+  segmentCount: integer('segment_count').notNull().default(0),
+  transcribedAt: integer('transcribed_at').notNull(),
+}, t => [primaryKey({ columns: [t.meetingId, t.chunkIndex] })]);
 
 /**
  * The unit of correctness. Whisper segments are utterance chunks, not

@@ -108,6 +108,36 @@ export interface TranscriptSegment {
   confidence: number | null;
 }
 
+export type ChunkTranscriptionStatus = 'ok' | 'failed';
+
+/**
+ * How one recorded chunk fared in transcription. Kept per chunk so a failure
+ * part way through a long recording costs only that chunk, and can be retried
+ * on its own instead of retranscribing everything.
+ */
+export interface TranscriptChunk {
+  meetingId: string;
+  chunkIndex: number;
+  sourceFile: string;
+  status: ChunkTranscriptionStatus;
+  errorMessage: string | null;
+  /** Measured length, or the configured target when the audio was unreadable. */
+  durationSeconds: number;
+  whisperModel: string;
+  segmentCount: number;
+  transcribedAt: number;
+}
+
+export interface ProcessMeetingOptions {
+  /** Defaults to the whisperModel setting. */
+  whisperModel?: string;
+  /**
+   * Keep the chunks already transcribed and only (re)do the rest — failed
+   * ones, and any never reached because the app closed mid-run.
+   */
+  resume?: boolean;
+}
+
 export interface Mistake {
   id: string;
   meetingId: string;
@@ -210,6 +240,7 @@ export interface MeetingWithAnalysis extends Meeting {
   mistakes: Mistake[];
   profile: Profile | null;
   analyses: MeetingAnalysis[];
+  transcriptChunks: TranscriptChunk[];
 }
 
 export interface MeetingFilters {
@@ -330,6 +361,18 @@ export interface DownloadProgressEvent {
   percentage: number;
 }
 
+/**
+ * Sent after each chunk is transcribed and committed, so the report can show
+ * the transcript growing instead of waiting for the whole recording.
+ */
+export interface TranscriptChunkEvent {
+  meetingId: string;
+  chunk: TranscriptChunk;
+  /** Chunks attempted in this run so far, and in total. */
+  done: number;
+  total: number;
+}
+
 export interface AnalysisBatchEvent {
   meetingId: string;
   mistakes: Mistake[];
@@ -392,6 +435,8 @@ export interface ElectronAPI {
   getReviewSummary(): Promise<ReviewSummary>;
   reAnalyzeMeeting(meetingId: string): Promise<Mistake[]>;
   stopAnalysis(meetingId: string): Promise<void>;
+  /** Kills the running whisper; parts already transcribed are kept for a resume. */
+  stopTranscription(meetingId: string): Promise<void>;
   startAnalysis(meetingId: string): Promise<Mistake[]>;
 
   // Meetings
@@ -414,7 +459,7 @@ export interface ElectronAPI {
   updateSettings(settings: Partial<AppSettings>): Promise<void>;
 
   // Pipeline
-  processMeeting(meetingId: string, chunkPaths?: string[]): Promise<{ segments: TranscriptSegment[]; mistakes: Mistake[] }>;
+  processMeeting(meetingId: string, options?: ProcessMeetingOptions): Promise<{ segments: TranscriptSegment[]; mistakes: Mistake[]; cancelled?: boolean }>;
 
   // Prerequisites
   checkPrerequisites(): Promise<PrerequisiteStatus>;
@@ -440,6 +485,7 @@ export interface ElectronAPI {
   onProgress(callback: (event: ProgressEvent) => void): () => void;
   onDownloadProgress(callback: (event: DownloadProgressEvent) => void): () => void;
   onAnalysisBatch(callback: (event: AnalysisBatchEvent) => void): () => void;
+  onTranscriptChunk(callback: (event: TranscriptChunkEvent) => void): () => void;
 }
 
 declare global {

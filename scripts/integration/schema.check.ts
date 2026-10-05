@@ -26,7 +26,7 @@ section('a fresh database');
     .filter(n => !n.startsWith('sqlite_'));
   check('creates every table', tables, [
     'error_categories', 'meeting_analyses', 'meetings', 'mistakes', 'patterns',
-    'profiles', 'rules', 'sentences', 'settings', 'transcript_segments',
+    'profiles', 'rules', 'sentences', 'settings', 'transcript_chunks', 'transcript_segments',
   ]);
 
   const indexes = (db.prepare(
@@ -110,6 +110,21 @@ section('a pre-versioning database');
   check('reseeds the categories cleanly', count(db, 'SELECT COUNT(*) c FROM error_categories'), 17);
   check('clears categories the model had invented', db.prepare("SELECT 1 FROM error_categories WHERE name='Hallucinated Category'").get(), undefined);
   check('adds the new meeting columns', !!db.prepare('SELECT recording_mode, clean_sentence_rate, analysis_state FROM meetings LIMIT 1').columns(), true);
+  db.close();
+}
+
+section('a current-version database from before transcript_chunks');
+{
+  const db = new Database(path.join(tmp, 'v2.db'));
+  applySchema(db);
+  db.prepare(`INSERT INTO meetings (id,title,recording_mode,grammar_mode,started_at,status) VALUES ('keep','Kept','solo','professional',1,'completed')`).run();
+  db.exec('DROP TABLE transcript_chunks');
+
+  const result = applySchema(db);
+  // Adding a table must not cost released users their recordings.
+  check('is not reset', result.reset, false);
+  check('keeps its recordings', count(db, 'SELECT COUNT(*) c FROM meetings'), 1);
+  check('gains the table', !!db.prepare("SELECT 1 FROM sqlite_master WHERE name='transcript_chunks'").get(), true);
   db.close();
 }
 

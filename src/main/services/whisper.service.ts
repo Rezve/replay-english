@@ -64,6 +64,38 @@ export function listDownloadedModels(): string[] {
   }
 }
 
+// Silero voice-activity model (~900 KB). Without it, whisper decodes silence
+// and fills it with "You" / "Thank you." hallucinations.
+const VAD_MODEL_FILE = 'ggml-silero-v5.1.2.bin';
+const VAD_MODEL_URL = `https://huggingface.co/ggml-org/whisper-vad/resolve/main/${VAD_MODEL_FILE}`;
+
+/** Kept in its own folder so the model pickers never offer it as a speech model. */
+export function getVadModelPath(): string {
+  const dir = path.join(getModelDir(), 'vad');
+  fs.mkdirSync(dir, { recursive: true });
+  return path.join(dir, VAD_MODEL_FILE);
+}
+
+/**
+ * Fetches the VAD model if missing. It is small, so this happens silently on
+ * the first transcription rather than as a setup step; if it cannot be
+ * fetched, transcription still runs, just without VAD.
+ */
+export async function ensureVadModel(): Promise<boolean> {
+  const modelPath = getVadModelPath();
+  if (fs.existsSync(modelPath)) return true;
+  const tempPath = modelPath + '.tmp';
+  try {
+    await downloadFile(VAD_MODEL_URL, tempPath);
+    fs.renameSync(tempPath, modelPath);
+    return true;
+  } catch (err) {
+    try { fs.unlinkSync(tempPath); } catch { /* ignore */ }
+    console.warn('Could not download the VAD model; transcribing without it:', (err as Error)?.message);
+    return false;
+  }
+}
+
 export function isWhisperAvailable(): boolean {
   const binaryPath = getWhisperBinaryPath();
   return fs.existsSync(binaryPath);
@@ -100,7 +132,10 @@ export async function transcribeWav(
   wavPath: string,
   modelName: string = 'ggml-base.en.bin',
   language: string = 'en',
-  translate: boolean = false
+  translate: boolean = false,
+  timeoutMs: number = 600000,
+  /** Kills whisper when aborted, so Stop does not wait out a long chunk. */
+  signal?: AbortSignal
 ): Promise<TranscriptionSegment[]> {
   const binaryPath = getWhisperBinaryPath();
   const modelPath = getModelPath(modelName);
@@ -144,11 +179,15 @@ export async function transcribeWav(
     '-sns',          // suppress non-speech tokens ([MUSIC], (noise), ...)
     '-nth', '0.6',   // no-speech threshold — skip silent windows instead of hallucinating
   ];
+  // Only speech regions are decoded; timestamps still refer to the full audio.
+  const vadModelPath = getVadModelPath();
+  if (fs.existsSync(vadModelPath)) args.push('--vad', '-vm', vadModelPath);
   if (translate) args.push('--translate');
 
   try {
     await execFileAsync(binaryPath, args, {
-      timeout: 600000, // 10 minute timeout per chunk
+      timeout: Math.ceil(timeoutMs), // execFile requires an integer
+      signal,
       maxBuffer: 50 * 1024 * 1024, // 50MB buffer
     });
     console.log('Whisper completed successfully');

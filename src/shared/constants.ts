@@ -306,6 +306,7 @@ export const IPC_CHANNELS = {
   ANALYZE_TRANSCRIPT: 'analysis:analyze-transcript',
   RE_ANALYZE_MEETING: 'analysis:re-analyze',
   STOP_ANALYSIS: 'analysis:stop',
+  STOP_TRANSCRIPTION: 'transcription:stop',
   START_ANALYSIS: 'analysis:start',
   RUN_CONTEXT_ANALYSES: 'analysis:run-context-analyses',
   RUN_SINGLE_CONTEXT_ANALYSIS: 'analysis:run-single-context-analysis',
@@ -364,4 +365,5 @@ export const IPC_CHANNELS = {
   PROGRESS: 'event:progress',
   DOWNLOAD_PROGRESS: 'event:download-progress',
   ANALYSIS_BATCH_READY: 'event:analysis-batch-ready',
+  TRANSCRIPT_CHUNK_READY: 'event:transcript-chunk-ready',
 } as const;

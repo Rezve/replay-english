@@ -14,6 +14,8 @@ import type {
   AnalysisBatchEvent,
   WhisperBinaryVariant,
   UpdateStatus,
+  ProcessMeetingOptions,
+  TranscriptChunkEvent,
 } from './shared/types';
 
 const electronAPI: ElectronAPI = {
@@ -49,6 +51,8 @@ const electronAPI: ElectronAPI = {
     ipcRenderer.invoke(IPC_CHANNELS.RE_ANALYZE_MEETING, meetingId),
   stopAnalysis: (meetingId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.STOP_ANALYSIS, meetingId),
+  stopTranscription: (meetingId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.STOP_TRANSCRIPTION, meetingId),
   startAnalysis: (meetingId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.START_ANALYSIS, meetingId),
 
@@ -98,8 +102,8 @@ const electronAPI: ElectronAPI = {
     ipcRenderer.invoke(IPC_CHANNELS.GET_REVIEW_SUMMARY),
 
   // Pipeline
-  processMeeting: (meetingId: string, chunkPaths: string[]) =>
-    ipcRenderer.invoke(IPC_CHANNELS.PROCESS_MEETING, meetingId, chunkPaths),
+  processMeeting: (meetingId: string, options?: ProcessMeetingOptions) =>
+    ipcRenderer.invoke(IPC_CHANNELS.PROCESS_MEETING, meetingId, options),
 
   // Context analyses
   runContextAnalyses: (meetingId: string) =>
@@ -146,6 +150,11 @@ const electronAPI: ElectronAPI = {
     const handler = (_event: Electron.IpcRendererEvent, data: AnalysisBatchEvent) => callback(data);
     ipcRenderer.on(IPC_CHANNELS.ANALYSIS_BATCH_READY, handler);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.ANALYSIS_BATCH_READY, handler);
+  },
+  onTranscriptChunk: (callback: (event: TranscriptChunkEvent) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: TranscriptChunkEvent) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.TRANSCRIPT_CHUNK_READY, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.TRANSCRIPT_CHUNK_READY, handler);
   },
 };
 

@@ -12,8 +12,18 @@ import {
   type AnalysisRunOptions,
 } from '../services/analysis.service';
 import { getSettings, analysesFor, grammarModeFor } from '../services/settings.service';
+import {
+  transcribeChunks,
+  cancelTranscription,
+  loadTranscriptChunks,
+  loadSegments,
+  ChunkTranscriptionError,
+  type ChunkTranscriber,
+  type TranscribeChunksResult,
+} from '../services/transcription.service';
 import { buildTranscriptParagraphs } from '../../shared/transcript';
-import type { TranscriptSegment, AnalysisBatchEvent, ContextAnalysisType } from '../../shared/types';
+import { dropHallucinations } from '../../shared/hallucinations';
+import type { TranscriptSegment, AnalysisBatchEvent, TranscriptChunkEvent, ContextAnalysisType, ProcessMeetingOptions } from '../../shared/types';
 
 /**
  * Everything derived from an analysis run, cleared before re-running so a stale
@@ -58,14 +68,6 @@ export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
     };
   }
 
-  async function loadSegments(meetingId: string): Promise<TranscriptSegment[]> {
-    const db = getDb();
-    return db.select().from(dbSchema.transcriptSegments)
-      .where(eq(dbSchema.transcriptSegments.meetingId, meetingId))
-      .orderBy(dbSchema.transcriptSegments.segmentIndex)
-      .all();
-  }
-
   /**
    * The options for a full run. Which analyses run and how strictly depends on
    * the recording's own mode, so a solo practice session is judged by the solo
@@ -104,161 +106,203 @@ export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
     }
   );
 
-  // Full pipeline: transcribe + analyze
-  ipcMain.handle(
-    IPC_CHANNELS.PROCESS_MEETING,
-    async (_event, meetingId: string, chunkPaths?: string[]) => {
-      // Called from the renderer after recording stops: convert -> transcribe -> analyze
-      const { convertToWav, getChunkPaths, getWavDurationSeconds } = await import('../services/audio.service');
-      const { transcribeWav } = await import('../services/whisper.service');
-      const { v4: uuidv4 } = await import('uuid');
+  // Full pipeline: transcribe + analyze. Also serves "retranscribe" (optionally
+  // with another whisper model) and "resume", which keeps the chunks already
+  // transcribed and redoes only the failed or unreached ones.
+  async function processMeeting(meetingId: string, options: ProcessMeetingOptions) {
+    const { convertToWav, getChunkPaths, getWavDurationSeconds } = await import('../services/audio.service');
+    const {
+      transcribeWav,
+      isModelAvailable,
+      isWhisperAvailable,
+      getWhisperBinaryPath,
+      ensureVadModel,
+    } = await import('../services/whisper.service');
 
-      const settings = await getSettings();
-      const db = getDb();
-      const allSegments: TranscriptSegment[] = [];
-      let globalSegmentIndex = 0;
+    const settings = await getSettings();
+    const db = getDb();
+    const whisperModel = options.whisperModel || settings.whisperModel;
+    const resume = !!options.resume;
+    const language = settings.transcriptionLanguage;
 
-      const meetingRow = await db.select({ recordingMode: dbSchema.meetings.recordingMode })
-        .from(dbSchema.meetings)
-        .where(eq(dbSchema.meetings.id, meetingId))
-        .get();
-      const isSolo = meetingRow?.recordingMode === 'solo';
+    // Checked before anything is cleared: a missing model used to wipe a
+    // good transcript and then fail every chunk.
+    if (!isWhisperAvailable()) {
+      throw new Error(`Whisper binary not found at: ${getWhisperBinaryPath()}`);
+    }
+    if (!isModelAvailable(whisperModel)) {
+      throw new Error(`Whisper model ${whisperModel} is not downloaded. Download it from the Setup page first.`);
+    }
 
-      // Solo recordings have one unprefixed track; meetings have a mixed track
-      // for playback plus a 'mic_' track that is the only thing analysed.
-      const paths = chunkPaths && chunkPaths.length > 0
-        ? chunkPaths
-        : getChunkPaths(meetingId, isSolo ? undefined : 'mic');
+    const meetingRow = await db.select({ recordingMode: dbSchema.meetings.recordingMode })
+      .from(dbSchema.meetings)
+      .where(eq(dbSchema.meetings.id, meetingId))
+      .get();
+    const isSolo = meetingRow?.recordingMode === 'solo';
 
-      if (paths.length === 0) {
-        // Fallback to regular chunks for backward compatibility
-        const fallbackPaths = getChunkPaths(meetingId);
-        if (fallbackPaths.length === 0) {
-          throw new Error('No audio chunks found for this meeting. The recording may not have been saved properly.');
-        }
-        paths.push(...fallbackPaths);
+    // Solo recordings have one unprefixed track; meetings have a mixed track
+    // for playback plus a 'mic_' track that is the only thing analysed. A
+    // resume stays on whichever track the transcript was started from.
+    const existingChunks = resume ? await loadTranscriptChunks(meetingId) : [];
+    const startedOnMixed = !isSolo && existingChunks.length > 0 && !existingChunks[0].sourceFile.startsWith('mic_');
+    let paths = getChunkPaths(meetingId, isSolo || startedOnMixed ? undefined : 'mic');
+    if (paths.length === 0) {
+      // Fallback to regular chunks for backward compatibility
+      paths = getChunkPaths(meetingId);
+    }
+    if (paths.length === 0) {
+      throw new Error('No audio chunks found for this meeting. The recording may not have been saved properly.');
+    }
+
+    // Analysis results describe the old transcript, which is about to change.
+    await db.delete(dbSchema.mistakes).where(eq(dbSchema.mistakes.meetingId, meetingId));
+    await db.delete(dbSchema.meetingAnalyses).where(eq(dbSchema.meetingAnalyses.meetingId, meetingId));
+    await db.delete(dbSchema.sentences).where(eq(dbSchema.sentences.meetingId, meetingId));
+    await db.update(dbSchema.meetings)
+      .set({ status: 'transcribing', totalSegments: 0, transcript: null, ...CLEARED_METRICS })
+      .where(eq(dbSchema.meetings.id, meetingId));
+
+    // Without VAD, silence comes back as walls of "You". Best effort: a
+    // failed download still transcribes, and dropHallucinations still runs.
+    await ensureVadModel();
+
+    const transcribe: ChunkTranscriber = async (chunkPath, signal) => {
+      const wavPath = await convertToWav(chunkPath, signal);
+      const durationSeconds = getWavDurationSeconds(wavPath);
+      // Larger models on CPU run slower than real time; a flat 10 minutes
+      // failed long chunks that were still making progress.
+      // Rounded: the measured duration is fractional, and execFile rejects a
+      // non-integer timeout before whisper even starts.
+      const timeoutMs = Math.max(10 * 60_000, Math.ceil((durationSeconds ?? settings.chunkDurationSeconds) * 6_000));
+      try {
+        const segments = await transcribeWav(wavPath, whisperModel, language, false, timeoutMs, signal);
+        const translated = language !== 'en'
+          ? await transcribeWav(wavPath, whisperModel, language, true, timeoutMs, signal)
+          : [];
+        // Filtered after pairing, so a dropped line takes its translation with it.
+        const paired = segments.map((seg, s) => ({ ...seg, translatedText: translated[s]?.text ?? null }));
+        return { segments: dropHallucinations(paired), durationSeconds };
+      } catch (err: any) {
+        throw new ChunkTranscriptionError(err?.message || String(err), durationSeconds);
       }
+    };
 
-      // Phase 1: Transcription. Clear anything from a previous (failed or
-      // unsatisfactory) run first so this handler doubles as "retranscribe".
-      await db.delete(dbSchema.mistakes).where(eq(dbSchema.mistakes.meetingId, meetingId));
-      await db.delete(dbSchema.meetingAnalyses).where(eq(dbSchema.meetingAnalyses.meetingId, meetingId));
-      await db.delete(dbSchema.transcriptSegments).where(eq(dbSchema.transcriptSegments.meetingId, meetingId));
-      await db.update(dbSchema.meetings)
-        .set({ status: 'transcribing', totalSegments: 0, transcript: null, ...CLEARED_METRICS })
-        .where(eq(dbSchema.meetings.id, meetingId));
-
-      const language = settings.transcriptionLanguage;
-
-      const transcribePaths = async (chunkList: string[]) => {
-        // Timestamps accumulate from measured chunk lengths — the configured
-        // chunk duration is only a target and real chunks drift from it.
-        let cumulativeOffset = 0;
-
-        for (let i = 0; i < chunkList.length; i++) {
+    const runChunks = (chunkList: string[], resumeRun: boolean) =>
+      transcribeChunks(meetingId, chunkList, {
+        whisperModel,
+        resume: resumeRun,
+        transcribe,
+        fallbackChunkSeconds: settings.chunkDurationSeconds,
+        onProgress: (done, total, chunkIndex) => {
           mainWindow.webContents.send(IPC_CHANNELS.PROGRESS, {
             stage: 'transcribing',
-            current: i + 1,
-            total: chunkList.length,
-            message: `Converting and transcribing chunk ${i + 1} of ${chunkList.length}...`,
+            current: done,
+            total,
+            message: total < chunkList.length
+              ? `Transcribing part ${chunkIndex + 1} of ${chunkList.length} (${done} of ${total} remaining)...`
+              : `Transcribing part ${chunkIndex + 1} of ${chunkList.length}...`,
           });
+        },
+        onChunkDone: (chunk, done, total) => {
+          const event: TranscriptChunkEvent = { meetingId, chunk, done, total };
+          mainWindow.webContents.send(IPC_CHANNELS.TRANSCRIPT_CHUNK_READY, event);
+        },
+      });
 
-          const chunkOffset = cumulativeOffset;
-          // Retry once per chunk — transient ffmpeg/whisper failures are common
-          let segments: Awaited<ReturnType<typeof transcribeWav>> = [];
-          let translated: typeof segments = [];
-          let chunkDuration: number | null = null;
-          for (let attempt = 1; ; attempt++) {
-            try {
-              const wavPath = await convertToWav(chunkList[i]);
-              segments = await transcribeWav(wavPath, settings.whisperModel, language);
-              if (language !== 'en') {
-                translated = await transcribeWav(wavPath, settings.whisperModel, language, true);
-              }
-              chunkDuration = getWavDurationSeconds(wavPath);
-              break;
-            } catch (err: any) {
-              if (attempt >= 2) {
-                throw new Error(`Chunk ${i + 1} of ${chunkList.length} failed: ${err?.message || err}`);
-              }
-              console.warn(`Chunk ${i + 1} failed (attempt ${attempt}), retrying:`, err?.message);
-            }
-          }
+    let outcome: TranscribeChunksResult;
+    try {
+      outcome = await runChunks(paths, resume);
 
-          for (let s = 0; s < segments.length; s++) {
-            const seg = segments[s];
-            const segment: TranscriptSegment = {
-              id: uuidv4(),
-              meetingId,
-              chunkIndex: i,
-              segmentIndex: globalSegmentIndex++,
-              startTime: seg.startTime + chunkOffset,
-              endTime: seg.endTime + chunkOffset,
-              text: seg.text,
-              translatedText: translated[s]?.text ?? null,
-              confidence: seg.confidence,
-            };
-            await db.insert(dbSchema.transcriptSegments).values(segment);
-            allSegments.push(segment);
-          }
-
-          // Fall back to the last segment's end time if the header was unreadable.
-          cumulativeOffset += chunkDuration
-            ?? (segments.length > 0 ? segments[segments.length - 1].endTime : settings.chunkDurationSeconds);
-        }
-      };
-
-      try {
-        await transcribePaths(paths);
-
-        // The mic-only track can come out silent (wrong input device, mic
-        // captured nothing) while the mixed track still has audio — fall back to
-        // it. Solo recordings have no second track to fall back to.
-        if (allSegments.length === 0 && !isSolo && !(chunkPaths && chunkPaths.length > 0)) {
-          const mixedPaths = getChunkPaths(meetingId);
-          if (mixedPaths.length > 0 && mixedPaths.join() !== paths.join()) {
-            console.warn('Mic-only track had no speech; falling back to the mixed recording');
-            globalSegmentIndex = 0;
-            await transcribePaths(mixedPaths);
-          }
-        }
-
-        if (allSegments.length === 0) {
-          throw new Error('No speech was detected in the recording. Check that the correct microphone is selected and the level meter moves while you speak, then record again.');
-        }
-      } catch (err) {
+      // Stopped by the user. Not an error: park the meeting where Retry or
+      // another model can resume it, with the parts done so far readable.
+      if (outcome.cancelled) {
         await db.update(dbSchema.meetings)
-          .set({ status: 'failed' })
+          .set({
+            status: 'failed',
+            totalSegments: outcome.segments.length,
+            transcript: outcome.segments.length > 0 ? buildTranscriptParagraphs(outcome.segments) : null,
+          })
           .where(eq(dbSchema.meetings.id, meetingId));
-        throw err;
+        return { segments: outcome.segments, mistakes: [], cancelled: true };
       }
 
-      // Sentences are derived once here, right after transcription, so the
-      // transcript and the clean-rate denominator exist even if analysis never
-      // runs or is stopped partway.
-      const derived = await deriveSentences(meetingId, allSegments);
+      // The mic-only track can come out silent (wrong input device, mic
+      // captured nothing) while the mixed track still has audio — fall back
+      // to it. Only when every chunk succeeded: a failure is not silence.
+      // Solo recordings have no second track to fall back to.
+      const silent = outcome.segments.length === 0 && outcome.chunks.every(c => c.status === 'ok');
+      if (silent && !isSolo && !startedOnMixed) {
+        const mixedPaths = getChunkPaths(meetingId);
+        if (mixedPaths.length > 0 && mixedPaths.join() !== paths.join()) {
+          console.warn('Mic-only track had no speech; falling back to the mixed recording');
+          outcome = await runChunks(mixedPaths, false);
+          if (outcome.cancelled) {
+            await db.update(dbSchema.meetings)
+              .set({ status: 'failed' })
+              .where(eq(dbSchema.meetings.id, meetingId));
+            return { segments: outcome.segments, mistakes: [], cancelled: true };
+          }
+        }
+      }
 
-      const opts = await runOptions(meetingId);
-      const hasAnyAnalysis = opts.lineByLine || opts.contextTypes.length > 0;
-
-      // Update segment count and set status
+      if (outcome.segments.length === 0) {
+        const failed = outcome.chunks.filter(c => c.status === 'failed');
+        throw new Error(failed.length > 0
+          ? `None of the ${outcome.chunks.length} parts could be transcribed. ${failed[0].errorMessage ?? ''}`.trim()
+          : 'No speech was detected in the recording. Check that the correct microphone is selected and the level meter moves while you speak, then record again.');
+      }
+    } catch (err) {
       await db.update(dbSchema.meetings)
-        .set({
-          totalSegments: allSegments.length,
-          sentencesTotal: derived.filter(s => s.countsTowardRate).length,
-          transcript: buildTranscriptParagraphs(allSegments),
-          status: hasAnyAnalysis ? 'analyzing' : 'completed',
-          ...(!hasAnyAnalysis ? { endedAt: Date.now() } : {}),
-        })
+        .set({ status: 'failed' })
         .where(eq(dbSchema.meetings.id, meetingId));
+      throw err;
+    }
 
-      if (!hasAnyAnalysis) {
-        return { segments: allSegments, mistakes: [] };
-      }
+    // Some parts failing is not fatal: the rest is analysed, and the report
+    // offers to retry just those parts from their transcript_chunks rows.
+    const allSegments = outcome.segments;
 
-      // Phases 2 and 3: line-by-line, then context analyses
-      const result = await runAnalysis(meetingId, allSegments, opts);
-      return { segments: allSegments, mistakes: result.mistakes };
+    // Sentences are derived once here, right after transcription, so the
+    // transcript and the clean-rate denominator exist even if analysis never
+    // runs or is stopped partway.
+    const derived = await deriveSentences(meetingId, allSegments);
+
+    const opts = await runOptions(meetingId);
+    const hasAnyAnalysis = opts.lineByLine || opts.contextTypes.length > 0;
+
+    // Update segment count and set status
+    await db.update(dbSchema.meetings)
+      .set({
+        totalSegments: allSegments.length,
+        sentencesTotal: derived.filter(s => s.countsTowardRate).length,
+        transcript: buildTranscriptParagraphs(allSegments),
+        status: hasAnyAnalysis ? 'analyzing' : 'completed',
+        ...(!hasAnyAnalysis ? { endedAt: Date.now() } : {}),
+      })
+      .where(eq(dbSchema.meetings.id, meetingId));
+
+    if (!hasAnyAnalysis) {
+      return { segments: allSegments, mistakes: [] };
+    }
+
+    // Phases 2 and 3: line-by-line, then context analyses
+    const result = await runAnalysis(meetingId, allSegments, opts);
+    return { segments: allSegments, mistakes: result.mistakes };
+  }
+
+  // One run per meeting. Reopening a report whose meeting is still
+  // 'transcribing' auto-starts processing; without this it started a second
+  // run beside the first, and both transcribed the same unfinished chunk.
+  const inFlight = new Map<string, ReturnType<typeof processMeeting>>();
+
+  ipcMain.handle(
+    IPC_CHANNELS.PROCESS_MEETING,
+    (_event, meetingId: string, options: ProcessMeetingOptions = {}) => {
+      const running = inFlight.get(meetingId);
+      if (running) return running;
+      const run = processMeeting(meetingId, options).finally(() => inFlight.delete(meetingId));
+      inFlight.set(meetingId, run);
+      return run;
     }
   );
 
@@ -346,6 +390,19 @@ export function registerAnalysisHandlers(mainWindow: BrowserWindow) {
       const opts = await runOptions(meetingId);
       const result = await retryFailedSentences(meetingId, { ...opts, lineByLine: true, contextTypes: [] });
       return result.mistakes;
+    }
+  );
+
+  // Stop transcription. The run itself parks the meeting once whisper dies;
+  // with no run in this process (a stale 'transcribing' left by a crash), park
+  // it here so the report offers Retry instead of spinning forever.
+  ipcMain.handle(
+    IPC_CHANNELS.STOP_TRANSCRIPTION,
+    async (_event, meetingId: string) => {
+      if (cancelTranscription(meetingId)) return;
+      await getDb().update(dbSchema.meetings)
+        .set({ status: 'failed' })
+        .where(eq(dbSchema.meetings.id, meetingId));
     }
   );
 

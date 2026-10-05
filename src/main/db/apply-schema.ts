@@ -36,6 +36,7 @@ export function applySchema(sqlite: Database.Database): { reset: boolean } {
       DROP TABLE IF EXISTS patterns;
       DROP TABLE IF EXISTS rules;
       DROP TABLE IF EXISTS meeting_analyses;
+      DROP TABLE IF EXISTS transcript_chunks;
       DROP TABLE IF EXISTS transcript_segments;
       DROP TABLE IF EXISTS meetings;
       DROP TABLE IF EXISTS error_categories;
@@ -87,6 +88,21 @@ export function applySchema(sqlite: Database.Database): { reset: boolean } {
       text TEXT NOT NULL,
       translated_text TEXT,
       confidence REAL
+    );
+
+    -- Added after release without a version bump: a new table needs no reset,
+    -- and IF NOT EXISTS creates it on existing databases.
+    CREATE TABLE IF NOT EXISTS transcript_chunks (
+      meeting_id TEXT NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+      chunk_index INTEGER NOT NULL,
+      source_file TEXT NOT NULL,
+      status TEXT NOT NULL,
+      error_message TEXT,
+      duration_seconds REAL NOT NULL,
+      whisper_model TEXT NOT NULL,
+      segment_count INTEGER NOT NULL DEFAULT 0,
+      transcribed_at INTEGER NOT NULL,
+      PRIMARY KEY (meeting_id, chunk_index)
     );
 
     CREATE TABLE IF NOT EXISTS sentences (

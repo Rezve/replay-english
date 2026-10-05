@@ -35,6 +35,7 @@ What the tests are really guarding: that **a failed analysis can never read as a
 - Auto-update is Windows-only (Squirrel.Windows); macOS would need code signing. Installed apps poll `update.electronjs.org/Rezve/replay-english` hourly (`main/services/update.service.ts`) and show `UpdateBanner` when an update is downloaded. This requires the GitHub repo/releases to be **public**. Updates are inactive in dev / unpackaged builds.
 - Vite plugin ships no `node_modules`: externals (`better-sqlite3`, `ffmpeg-static`, `adm-zip`) are copied in by the `packageAfterCopy` hook in `forge.config.ts`. Adding a new external in `vite.main.config.ts` means adding it to `EXTERNAL_MODULES` there too.
 - In packaged builds the whisper binary is downloaded to `userData/whisper` (install dir is read-only).
+- Whisper hallucinates on silence ("You" / "Thank you." walls). Two defences: the Silero VAD model (`userData/models/vad/`, ~900 KB, fetched silently by `ensureVadModel` on the first transcription and passed as `--vad -vm`), and `dropHallucinations` in `shared/hallucinations.ts` after transcription. With VAD a silent mic track comes back empty, which is what lets the mic→mixed fallback fire.
 - The app was renamed from **MemPill Language**. `productName` decides the `userData` folder, so `src/main/legacy-data.ts` moves the old `%APPDATA%\MemPill Language` contents (and `mempill.db` → `replay.db`) on first launch. Renaming `productName` again needs the same treatment.
 
 ## Stack
@@ -63,8 +64,9 @@ What the tests are really guarding: that **a failed analysis can never read as a
 **Database:**
 - SQLite with WAL mode and foreign keys enabled
 - Singleton connection in `src/main/db/connection.ts` (lazy init, stored in `app.getPath('userData')/replay.db`)
-- Schema in `src/main/db/schema.ts`: profiles, meetings, transcript_segments, **sentences**, mistakes, error_categories, **rules**, **patterns**, meeting_analyses, settings
+- Schema in `src/main/db/schema.ts`: profiles, meetings, transcript_segments, **transcript_chunks**, **sentences**, mistakes, error_categories, **rules**, **patterns**, meeting_analyses, settings
 - `src/main/db/apply-schema.ts` holds the SQL and seeding (electron-free, so it can be exercised against a temp file); `migrate.ts` only resolves the path
+- A purely additive table (like `transcript_chunks`) needs no version bump: `CREATE TABLE IF NOT EXISTS` adds it to existing databases
 - Versioned by `PRAGMA user_version` against `TARGET_SCHEMA_VERSION`. A lower version **drops and recreates every content table** — `settings` is deliberately preserved. Pre-release only; any bump after release needs real migrations
 - Categories and rules are seeded with `ON CONFLICT(slug/key) DO UPDATE`, so adding one to `shared/constants.ts` backfills on next launch
 
@@ -86,7 +88,7 @@ What the tests are really guarding: that **a failed analysis can never read as a
 
 **Processing pipeline** (`IPC_CHANNELS.PROCESS_MEETING`):
 1. Convert each chunk WebM→WAV with FFmpeg (unprefixed for solo, `mic_` for meetings)
-2. Transcribe with Whisper → save segments, stamping timestamps from measured WAV durations
+2. Transcribe with Whisper chunk by chunk (`transcription.service.ts`) → save segments, stamping timestamps from measured WAV durations. Each chunk's outcome is a `transcript_chunks` row (`ok`/`failed`, model, duration); a failed chunk no longer aborts the run. `ProcessMeetingOptions.resume` redoes only chunks without an `ok` row, and `whisperModel` overrides the setting for that run — this is how the report's "Retry these parts" and "Retranscribe with another model" work
 3. Derive `sentences` via `splitIntoSentences` — these are the unit the LLM is asked about and the denominator of the metric
 4. `runAnalysis`: batch sentences → Ollama → mark each sentence `clean` / `has_mistake` / `failed`, locate each mistake's span once, assign its pattern
 5. Context analyses, each stored with `status: 'ok' | 'failed'`

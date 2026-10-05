@@ -52,9 +52,10 @@ export function registerDatabaseHandlers() {
     const meeting = await db.select().from(schema.meetings).where(eq(schema.meetings.id, id)).get();
     if (!meeting) return null;
 
+    // By chunk first, so a transcript read mid-transcription is in order too.
     const segments = await db.select().from(schema.transcriptSegments)
       .where(eq(schema.transcriptSegments.meetingId, id))
-      .orderBy(schema.transcriptSegments.segmentIndex)
+      .orderBy(schema.transcriptSegments.chunkIndex, schema.transcriptSegments.segmentIndex)
       .all();
 
     const mistakeRows = await db.select().from(schema.mistakes)
@@ -84,9 +85,16 @@ export function registerDatabaseHandlers() {
       .orderBy(schema.sentences.sentenceIndex)
       .all();
 
+    // Per-chunk outcomes, so the report can offer to retry only the failed parts.
+    const transcriptChunks = await db.select().from(schema.transcriptChunks)
+      .where(eq(schema.transcriptChunks.meetingId, id))
+      .orderBy(schema.transcriptChunks.chunkIndex)
+      .all();
+
     return {
       ...meeting,
       segments,
+      transcriptChunks,
       sentences: sentenceRows.map(row => ({ ...row, countsTowardRate: !!row.countsTowardRate })),
       mistakes: mistakesWithAlternatives,
       profile,

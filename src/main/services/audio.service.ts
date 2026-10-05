@@ -98,7 +98,7 @@ export function getWavDurationSeconds(wavPath: string): number | null {
   }
 }
 
-export async function convertToWav(inputPath: string): Promise<string> {
+export async function convertToWav(inputPath: string, signal?: AbortSignal): Promise<string> {
   const outputPath = inputPath.replace(/\.[^.]+$/, '.wav');
   const ffmpegPath = getFFmpegPath();
 
@@ -110,7 +110,7 @@ export async function convertToWav(inputPath: string): Promise<string> {
     '-f', 'wav',
     '-y',              // overwrite
     outputPath,
-  ]);
+  ], { signal });
 
   return outputPath;
 }
@@ -152,6 +152,14 @@ export function cleanupMeetingAudio(meetingId: string): void {
   }
 }
 
+/**
+ * Recording order. Chunk numbers are unpadded, so a plain string sort puts
+ * chunk_10 before chunk_2 and scrambles any recording over ten chunks.
+ */
+function compareChunkFiles(a: string, b: string): number {
+  return a.localeCompare(b, undefined, { numeric: true });
+}
+
 export function getChunkPaths(meetingId: string, prefix?: string): string[] {
   const dir = resolveAudioDir(meetingId);
   if (!dir) return [];
@@ -164,7 +172,7 @@ export function getChunkPaths(meetingId: string, prefix?: string): string[] {
       // If no prefix, return files WITHOUT 'mic_' prefix (backward compatibility)
       return !f.startsWith('mic_');
     })
-    .sort((a, b) => a.localeCompare(b))
+    .sort(compareChunkFiles)
     .map(f => path.join(dir, f));
 }
 
@@ -179,7 +187,7 @@ export function getAudioChunks(meetingId: string): AudioChunkInfo[] {
 
   return fs.readdirSync(dir)
     .filter(f => f.endsWith('.webm') && !f.startsWith('mic_'))
-    .sort((a, b) => a.localeCompare(b))
+    .sort(compareChunkFiles)
     .map(f => ({
       filename: f,
       size: fs.statSync(path.join(dir, f)).size,

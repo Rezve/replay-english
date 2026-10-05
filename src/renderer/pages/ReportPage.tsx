@@ -21,6 +21,7 @@ import { buildTranscriptParagraphs } from '../../shared/transcript';
 import { formatCleanRate, encouragementFor } from '../../shared/metrics';
 import { MODE_ANALYSES, GRAMMAR_RULES } from '../../shared/constants';
 import { SentenceLine } from '../components/report/SentenceLine';
+import { RetranscribeDialog, whisperModelLabel } from '../components/report/RetranscribeDialog';
 
 /**
  * Measures a recorded chunk's real length. MediaRecorder WebM blobs often
@@ -76,6 +77,8 @@ import type {
   FluencyResult,
   AudioChunkInfo,
   AppSettings,
+  ProcessMeetingOptions,
+  TranscriptChunkEvent,
 } from '../../shared/types';
 
 type ReportTab = 'transcript' | 'line-by-line' | ContextAnalysisType;
@@ -152,6 +155,9 @@ export function ReportPage() {
   const [needsSetup, setNeedsSetup] = useState(false);
   const [activeTab, setActiveTab] = useState<ReportTab>('transcript');
   const processingStartedRef = React.useRef(false);
+  // Which retranscribe dialog is open, if any.
+  const [retranscribeMode, setRetranscribeMode] = useState<'all' | 'resume' | null>(null);
+  const [defaultWhisperModel, setDefaultWhisperModel] = useState('');
 
   // Audio player state
   const [audioChunks, setAudioChunks] = useState<AudioChunkInfo[]>([]);
@@ -220,25 +226,40 @@ export function ReportPage() {
     }
   };
 
-  const handleRetranscribe = async () => {
-    if (!meeting || !id) return;
-    if (meeting.segments.length > 0 &&
-        !confirm('Retranscribe this recording? The current transcript, mistakes and insights will be replaced.')) {
-      return;
-    }
+  /**
+   * Transcribes again. `resume` keeps the parts already transcribed and redoes
+   * the rest; otherwise everything is replaced. The model, when given, applies
+   * to this run only.
+   */
+  const handleTranscribe = async (options: ProcessMeetingOptions) => {
+    if (!id) return;
+    setRetranscribeMode(null);
     setProcessingError(null);
     setReanalyzing(true);
     setSelectedMistake(null);
     setMistakeIndex(0);
-    setMeeting(prev => prev ? { ...prev, status: 'transcribing', segments: [], mistakes: [], analyses: [], totalMistakes: 0, cleanSentenceRate: null, analysisState: 'none' } : prev);
+    setMeeting(prev => prev ? {
+      ...prev,
+      status: 'transcribing',
+      // Cleared so the transcript tab builds from the segments as they arrive.
+      transcript: null,
+      ...(options.resume ? {} : { segments: [], transcriptChunks: [] }),
+      sentences: [],
+      mistakes: [],
+      analyses: [],
+      totalMistakes: 0,
+      cleanSentenceRate: null,
+      analysisState: 'none',
+    } : prev);
     try {
-      const missing = await getMissingWhisperPart();
-      if (missing) {
+      // The model itself is checked by the dialog and again by the backend.
+      const prereqs = await api.checkPrerequisites();
+      if (!prereqs.whisperBinary) {
         setNeedsSetup(true);
-        throw new Error(missing);
+        throw new Error('The Whisper transcription engine is not installed.');
       }
       setNeedsSetup(false);
-      await api.processMeeting(id);
+      await api.processMeeting(id, options);
     } catch (err: any) {
       console.error('Retranscription failed:', err);
       setProcessingError(err?.message || 'Unknown error');
@@ -269,6 +290,28 @@ export function ReportPage() {
     a.download = `${meeting.title.replace(/[^a-z0-9]/gi, '_')}_transcript.txt`;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const [stoppingTranscription, setStoppingTranscription] = useState(false);
+
+  /**
+   * Kills the running whisper. The parts already transcribed are kept, so the
+   * user can resume — with this model or another — instead of starting over.
+   */
+  const handleStopTranscription = async () => {
+    if (!id) return;
+    setStoppingTranscription(true);
+    try {
+      await api.stopTranscription(id);
+      // The running processMeeting call reloads the meeting once whisper dies;
+      // this covers a stale run left by a crash, which has nothing to resolve.
+      setMeeting(await api.getMeeting(id));
+      setProgress(null);
+    } catch (err) {
+      console.error('Failed to stop transcription:', err);
+    } finally {
+      setStoppingTranscription(false);
+    }
   };
 
   const handleStopAnalysis = async () => {
@@ -448,6 +491,7 @@ export function ReportPage() {
     // Load chunk duration from settings for audio playback
     api.getSettings().then((s: AppSettings) => {
       setChunkDurationSeconds(s.chunkDurationSeconds);
+      setDefaultWhisperModel(s.whisperModel);
     }).catch(console.error);
 
     // Reset the processing flag when the effect runs
@@ -495,8 +539,10 @@ export function ReportPage() {
           return;
         }
 
-        // The backend will automatically find and process the audio chunks
-        await api.processMeeting(meetingId);
+        // The backend finds the audio chunks itself. Resuming is the same as a
+        // fresh run for a new recording, and after a crash or restart it
+        // keeps the parts already transcribed instead of starting over.
+        await api.processMeeting(meetingId, { resume: true });
 
         // Reload meeting after processing
         loadMeeting();
@@ -550,9 +596,24 @@ export function ReportPage() {
       });
     });
 
+    // Each part's text is committed as soon as it is transcribed; pull it in so
+    // a long recording can be read while the rest is still being transcribed.
+    const unsubChunk = api.onTranscriptChunk((event: TranscriptChunkEvent) => {
+      if (event.meetingId !== id) return;
+      api.getMeeting(id)
+        .then(data => {
+          if (!data) return;
+          setMeeting(prev => prev
+            ? { ...prev, segments: data.segments, transcriptChunks: data.transcriptChunks }
+            : data);
+        })
+        .catch(console.error);
+    });
+
     return () => {
       unsubProgress();
       unsubBatch();
+      unsubChunk();
     };
   }, [id]);
 
@@ -622,6 +683,16 @@ export function ReportPage() {
 
   const isProcessing = meeting.status === 'transcribing' || meeting.status === 'analyzing' || reanalyzing;
   const isRunningContext = runningTab !== null || (progress?.stage === 'context-analyzing' && progress?.current === 0);
+
+  const transcriptChunks = meeting.transcriptChunks ?? [];
+  const failedChunks = transcriptChunks.filter(c => c.status === 'failed');
+  const okChunks = transcriptChunks.filter(c => c.status === 'ok');
+  const usedWhisperModels = [...new Set(okChunks.map(c => c.whisperModel))];
+  // Parked mid-run (Stop, or the app closing) rather than broken: nothing
+  // failed, some parts are done, the rest were simply never reached. (All
+  // parts done with no speech found is a real failure, hence the count.)
+  const transcriptionStopped = meeting.status === 'failed' && failedChunks.length === 0 &&
+    okChunks.length > 0 && okChunks.length < audioChunks.length;
 
   const liveMistakes = meeting.mistakes.filter(m => m.occurrenceState !== 'rejected');
 
@@ -728,6 +799,11 @@ export function ReportPage() {
               <span className="px-2 py-0.5 bg-navy-700 rounded text-xs capitalize">
                 {meeting.recordingMode === 'solo' ? 'Solo' : 'Meeting'} · {meeting.grammarMode} standard
               </span>
+              {usedWhisperModels.length > 0 && (
+                <span className="px-2 py-0.5 bg-navy-700 rounded text-xs" title="Whisper model used for this transcript">
+                  Whisper {usedWhisperModels.map(whisperModelLabel).join(' + ')}
+                </span>
+              )}
             </div>
             {meeting.topic && (
               <p className="text-slate-400 text-sm mt-1.5 italic">{meeting.topic}</p>
@@ -887,6 +963,17 @@ export function ReportPage() {
               </p>
             )}
           </div>
+          {meeting.status === 'transcribing' && (
+            <button
+              onClick={handleStopTranscription}
+              disabled={stoppingTranscription}
+              title="Stop and keep the parts transcribed so far"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-red-500/20 hover:bg-red-500/30 text-red-400 hover:text-red-300 border border-red-500/30 rounded-lg transition-colors flex-shrink-0 disabled:opacity-50"
+            >
+              {stoppingTranscription ? <Loader2 size={12} className="animate-spin" /> : <Square size={12} fill="currentColor" />}
+              {stoppingTranscription ? 'Stopping...' : 'Stop'}
+            </button>
+          )}
           {(meeting.status === 'analyzing' || isRunningContext) && (
             <button
               onClick={handleStopAnalysis}
@@ -904,18 +991,29 @@ export function ReportPage() {
         <div className="flex-shrink-0 mb-4 bg-red-500/10 border border-red-500/20 rounded-lg p-4 flex items-center gap-3">
           <AlertTriangle size={20} className="text-red-400 flex-shrink-0" />
           <div className="flex-1 min-w-0">
-            <p className="text-red-300 font-medium">Transcription failed</p>
+            <p className="text-red-300 font-medium">
+              {transcriptionStopped ? 'Transcription stopped' : 'Transcription failed'}
+            </p>
             <p className="text-red-400/60 text-sm break-words">
-              {processingError || 'Processing did not finish. The recording is still saved — you can try again.'}
+              {transcriptionStopped
+                ? `${okChunks.length} part${okChunks.length === 1 ? ' is' : 's are'} transcribed and kept. Resume to finish the rest, or try another model.`
+                : processingError || 'Processing did not finish. The recording is still saved — you can try again.'}
               {needsSetup && ' Download it on the Setup page, then press Retry — your recording is safe.'}
             </p>
           </div>
+          {/* Resume keeps any parts that did transcribe; with none it is a full run. */}
           <button
-            onClick={handleRetranscribe}
+            onClick={() => handleTranscribe({ resume: true })}
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors flex-shrink-0"
           >
             <RefreshCw size={14} />
-            Retry
+            {transcriptionStopped ? 'Resume' : 'Retry'}
+          </button>
+          <button
+            onClick={() => setRetranscribeMode(okChunks.length > 0 ? 'resume' : 'all')}
+            className="px-3 py-1.5 text-sm bg-navy-700 hover:bg-navy-600 text-white rounded-lg transition-colors flex-shrink-0"
+          >
+            Try another model
           </button>
           {needsSetup && (
             <button
@@ -925,6 +1023,30 @@ export function ReportPage() {
               Open Setup
             </button>
           )}
+        </div>
+      )}
+
+      {/* Parts of the recording whose speech is missing from the transcript */}
+      {failedChunks.length > 0 && meeting.status !== 'failed' && !isProcessing && (
+        <div className="flex-shrink-0 mb-4 bg-amber-500/10 border border-amber-500/20 rounded-lg p-4 flex items-center gap-3">
+          <AlertTriangle size={20} className="text-amber-400 flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-amber-300 font-medium">
+              {failedChunks.length} of {transcriptChunks.length} part{transcriptChunks.length === 1 ? '' : 's'} couldn't be transcribed
+            </p>
+            <p className="text-amber-400/60 text-sm truncate" title={failedChunks[0].errorMessage ?? undefined}>
+              Parts {failedChunks.map(c => c.chunkIndex + 1).join(', ')} are missing from the transcript and the analysis.
+              {failedChunks[0].errorMessage && ` ${failedChunks[0].errorMessage}`}
+            </p>
+          </div>
+          <button
+            onClick={() => setRetranscribeMode('resume')}
+            disabled={reanalyzing || runningTab !== null}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-amber-600 hover:bg-amber-500 text-white rounded-lg transition-colors disabled:opacity-50 flex-shrink-0"
+          >
+            <RefreshCw size={14} />
+            Retry these parts
+          </button>
         </div>
       )}
 
@@ -993,15 +1115,54 @@ export function ReportPage() {
       <div className="flex-1 flex gap-4 min-h-0">
         {activeTab === 'transcript' && (() => {
           // Meetings transcribed before this tab existed have no stored transcript
+          // and mid-transcription it is not written yet: both build from segments.
           const text = meeting.transcript ?? buildTranscriptParagraphs(meeting.segments);
+          const transcribing = meeting.status === 'transcribing';
+          const canTranscribeAgain = !isProcessing &&
+            (meeting.status === 'completed' || meeting.status === 'failed' || meeting.status === 'transcribed');
           if (!text) return (
-            <div className="flex-1 flex items-center justify-center py-12">
-              <p className="text-slate-400">No transcript available</p>
+            <div className="flex-1 flex flex-col items-center justify-center py-12">
+              <p className="text-slate-400 mb-4">
+                {transcribing
+                  ? 'Transcribing… the text will appear here as each part finishes.'
+                  : 'No transcript available'}
+              </p>
+              {/* Nothing to read, so the way to get a transcript has to be here. */}
+              {canTranscribeAgain && (
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleTranscribe({ resume: true })}
+                    disabled={reanalyzing || runningTab !== null}
+                    className="flex items-center gap-1.5 px-4 py-2 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors disabled:opacity-50"
+                  >
+                    <RefreshCw size={14} />
+                    {meeting.status === 'failed' ? 'Retry transcription' : 'Transcribe'}
+                  </button>
+                  <button
+                    onClick={() => setRetranscribeMode(okChunks.length > 0 ? 'resume' : 'all')}
+                    disabled={reanalyzing || runningTab !== null}
+                    className="px-4 py-2 text-sm bg-navy-700 hover:bg-navy-600 text-white rounded-lg transition-colors disabled:opacity-50"
+                  >
+                    Choose model…
+                  </button>
+                </div>
+              )}
             </div>
           );
           return (
             <div className="flex-1 overflow-y-auto pr-2">
-              <div className="flex justify-end mb-2">
+              <div className="flex justify-end gap-2 mb-2">
+                {(meeting.status === 'completed' || meeting.status === 'failed' || meeting.status === 'transcribed') && (
+                  <button
+                    onClick={() => setRetranscribeMode('all')}
+                    disabled={reanalyzing || runningTab !== null}
+                    title="Transcribe the recording again, optionally with another Whisper model"
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-navy-700 hover:bg-navy-600 text-slate-300 hover:text-white rounded-lg transition-colors disabled:opacity-50"
+                  >
+                    <RefreshCw size={12} />
+                    Retranscribe
+                  </button>
+                )}
                 <button
                   onClick={() => navigator.clipboard.writeText(text)}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-navy-700 hover:bg-navy-600 text-slate-300 hover:text-white rounded-lg transition-colors"
@@ -1014,6 +1175,14 @@ export function ReportPage() {
                 {text.split('\n\n').map((para, i) => (
                   <p key={i} className="text-slate-200 text-sm leading-relaxed">{para}</p>
                 ))}
+                {transcribing && (
+                  <p className="flex items-center gap-2 text-blue-400/70 text-xs">
+                    <Loader2 size={12} className="animate-spin" />
+                    {progress?.stage === 'transcribing'
+                      ? `${progress.message} More text will appear as each part finishes.`
+                      : 'Still transcribing — more text will appear as each part finishes.'}
+                  </p>
+                )}
               </div>
             </div>
           );
@@ -1034,9 +1203,9 @@ export function ReportPage() {
                   </button>
                   {(meeting.status === 'completed' || meeting.status === 'failed' || meeting.status === 'transcribed') && (
                     <button
-                      onClick={handleRetranscribe}
+                      onClick={() => setRetranscribeMode('all')}
                       disabled={reanalyzing || runningTab !== null}
-                      title="Discard this transcript and transcribe the recording again"
+                      title="Transcribe the recording again, optionally with another Whisper model"
                       className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-navy-700 hover:bg-navy-600 text-slate-300 hover:text-white rounded-lg transition-colors disabled:opacity-50"
                     >
                       <RefreshCw size={12} />
@@ -1590,6 +1759,18 @@ export function ReportPage() {
           );
         })()}
       </div>
+
+      {retranscribeMode && (
+        <RetranscribeDialog
+          mode={retranscribeMode}
+          defaultModel={defaultWhisperModel}
+          // A plain retranscribe replaces everything, so there is nothing to keep.
+          doneParts={retranscribeMode === 'resume' ? okChunks.length : 0}
+          onConfirm={(model, resume) => handleTranscribe({ whisperModel: model, resume })}
+          onClose={() => setRetranscribeMode(null)}
+          onOpenSetup={() => navigate('/setup')}
+        />
+      )}
     </div>
   );
 }
