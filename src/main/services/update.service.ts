@@ -3,7 +3,10 @@ import { IPC_CHANNELS } from '../../shared/constants';
 import type { UpdateStatus } from '../../shared/types';
 
 // Public GitHub repo whose Releases host the Squirrel.Windows artifacts.
-// update.electronjs.org proxies them in the format Squirrel expects.
+// Squirrel reads <feed>/RELEASES and fetches the nupkg it names relative to the same
+// URL, and /releases/latest/download/* redirects to the newest release's asset — so
+// GitHub serves the feed directly. (update.electronjs.org was used before; its cache
+// stuck on an old release and stopped offering updates.)
 const GITHUB_REPO = 'Rezve/replay-english';
 const CHECK_INTERVAL_MS = 60 * 60 * 1000;
 
@@ -41,7 +44,7 @@ export function initAutoUpdater(mainWindow: BrowserWindow): void {
   // Updates only work for installed (Squirrel) builds on Windows.
   if (!app.isPackaged || process.platform !== 'win32' || initialized) return;
 
-  const feedUrl = `https://update.electronjs.org/${GITHUB_REPO}/${process.platform}-${process.arch}/${app.getVersion()}`;
+  const feedUrl = `https://github.com/${GITHUB_REPO}/releases/latest/download`;
   autoUpdater.setFeedURL({ url: feedUrl });
 
   autoUpdater.on('checking-for-update', () => setStatus({ state: 'checking' }));
